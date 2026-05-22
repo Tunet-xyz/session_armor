@@ -14,7 +14,7 @@ We take security seriously. If you discover a security vulnerability in SessionA
 
 **Please DO NOT open a public GitHub issue for security vulnerabilities.**
 
-Instead, please email security concerns to: **alex@coded.uk**
+Instead, please email security concerns to: **alex@tunet.xyz**
 
 Include the following in your report:
 - Description of the vulnerability

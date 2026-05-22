@@ -135,4 +135,4 @@ mypy src/session_armor
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — Copyright (c) 2024-2026 Tunet Ltd. See [LICENSE](LICENSE).
