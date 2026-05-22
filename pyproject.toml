@@ -14,7 +14,7 @@ requires-python = ">=3.10"
 license = "MIT"
 keywords = ["django", "middleware", "security", "session", "audit", "gates", "nist", "owasp"]
 authors = [
-  { name = "Alex C", email = "alex@coded.uk" },
+  { name = "Tunet Ltd", email = "alex@tunet.xyz" },
 ]
 classifiers = [
   "Framework :: Django",
