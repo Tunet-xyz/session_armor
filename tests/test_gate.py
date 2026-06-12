@@ -150,6 +150,105 @@ class TestGateMiddleware:
         response = middleware(request)
         assert response.status_code == 200  # Gate skipped
 
+    def test_sticky_pass_skips_ttl_recheck(self):
+        calls = []
+
+        class StickyGate(GateMiddleware):
+            gate_id = 'test_sticky'
+            recheck_after_pass = False
+            default_cache_ttl = 60
+
+            def check(self, request) -> bool:
+                calls.append(1)
+                return True
+
+        middleware = StickyGate(ok_response)
+        request = make_request()
+        # Cached pass from long before the TTL window
+        request.session['_gate_test_sticky_at'] = time.time() - 9999
+        request.session['_gate_test_sticky_result'] = True
+
+        response = middleware(request)
+        assert response.status_code == 200
+        assert calls == []  # check() never ran
+
+    def test_sticky_pass_still_rechecks_failures(self):
+        calls = []
+
+        class StickyGate(GateMiddleware):
+            gate_id = 'test_sticky_fail'
+            recheck_after_pass = False
+            default_cache_ttl = 60
+
+            def check(self, request) -> bool:
+                calls.append(1)
+                return True
+
+        middleware = StickyGate(ok_response)
+        request = make_request()
+        # Cached *failure* past the TTL → must re-check
+        request.session['_gate_test_sticky_fail_at'] = time.time() - 120
+        request.session['_gate_test_sticky_fail_result'] = False
+
+        response = middleware(request)
+        assert response.status_code == 200
+        assert calls == [1]
+
+    def test_version_mismatch_invalidates_cache(self):
+        calls = []
+
+        class VersionedGate(GateMiddleware):
+            gate_id = 'test_versioned'
+            recheck_after_pass = False
+
+            def check(self, request) -> bool:
+                calls.append(1)
+                return True
+
+            def get_state_version(self, request):
+                return 'v2'
+
+        middleware = VersionedGate(ok_response)
+        request = make_request()
+        request.session['_gate_test_versioned_at'] = time.time()
+        request.session['_gate_test_versioned_result'] = True
+        request.session['_gate_test_versioned_version'] = 'v1'
+
+        response = middleware(request)
+        assert response.status_code == 200
+        assert calls == [1]  # Re-checked despite cached pass
+        assert request.session['_gate_test_versioned_version'] == 'v2'
+
+    def test_version_match_uses_cache(self):
+        calls = []
+
+        class VersionedGate(GateMiddleware):
+            gate_id = 'test_versioned_hit'
+            recheck_after_pass = False
+
+            def check(self, request) -> bool:
+                calls.append(1)
+                return True
+
+            def get_state_version(self, request):
+                return 'v1'
+
+        middleware = VersionedGate(ok_response)
+        request = make_request()
+        request.session['_gate_test_versioned_hit_at'] = time.time() - 9999
+        request.session['_gate_test_versioned_hit_result'] = True
+        request.session['_gate_test_versioned_hit_version'] = 'v1'
+
+        response = middleware(request)
+        assert response.status_code == 200
+        assert calls == []
+
+    def test_invalidate_clears_version(self):
+        request = make_request()
+        request.session['_gate_test_pass_version'] = 'v1'
+        PassGate.invalidate(request)
+        assert '_gate_test_pass_version' not in request.session
+
     def test_not_implemented_check(self):
         class NoCheck(GateMiddleware):
             gate_id = 'nocheck'

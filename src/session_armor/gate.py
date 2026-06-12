@@ -52,6 +52,12 @@ class GateMiddleware:
         exempt_paths        Tuple of path prefixes that bypass this gate.
         requires_auth       Only check authenticated requests (default True).
         fail_open           Pass through on errors (default False).
+        recheck_after_pass  Re-run check() after the TTL even when the last
+                            result passed (default True). Set False for
+                            "check once" gates (onboarding, compliance):
+                            a passing result then stays cached for the whole
+                            session, until ``invalidate()`` is called or the
+                            state version changes.
 
     Hooks (override any combination in your subclass):
 
@@ -62,6 +68,7 @@ class GateMiddleware:
         on_pass(request)
         on_error(request, error) → bool
         get_rejection_context(request) → dict
+        get_state_version(request) → str | None
     """
 
     # ── Configuration (override in subclass) ─────────────────────────────
@@ -71,6 +78,7 @@ class GateMiddleware:
     exempt_paths: tuple[str, ...] = ()
     requires_auth: bool = True
     fail_open: bool = False
+    recheck_after_pass: bool = True
 
     # ── Django middleware protocol ────────────────────────────────────────
 
@@ -96,10 +104,12 @@ class GateMiddleware:
         now = time.time()
         prefix = self._cache_prefix
         ttl = self._get_cache_ttl()
+        version = self.get_state_version(request)
 
         # ── Session-cache fast path ──
-        checked_at = request.session.get(f'{prefix}_at', 0)
-        if (now - checked_at) < ttl and f'{prefix}_result' in request.session:
+        if f'{prefix}_result' in request.session and self._cache_valid(
+            request, now, ttl, version,
+        ):
             passed = request.session[f'{prefix}_result']
             if not passed:
                 return self.on_reject(request)
@@ -118,6 +128,8 @@ class GateMiddleware:
         # ── Cache the result ──
         request.session[f'{prefix}_at'] = now
         request.session[f'{prefix}_result'] = passed
+        if version is not None:
+            request.session[f'{prefix}_version'] = version
 
         if not passed:
             ctx = self.get_rejection_context(request)
@@ -178,6 +190,21 @@ class GateMiddleware:
         """
         return {}
 
+    def get_state_version(self, request) -> str | None:
+        """
+        Return a cheap version stamp for the state behind this gate.
+
+        Return ``None`` (the default) to disable version tracking.
+
+        When a value is returned, the cached gate result is only reused
+        while the version matches the one stored at check time. Back the
+        stamp with something cheap and shared (e.g. a Django cache key
+        bumped whenever an admin publishes a new document version or adds
+        an onboarding step) — this propagates invalidation to every active
+        session without per-request database hits.
+        """
+        return None
+
     # ── CLASS UTILITIES (call from views) ────────────────────────────────
 
     @classmethod
@@ -189,7 +216,7 @@ class GateMiddleware:
         (e.g. user just accepted terms, completed an onboarding step).
         """
         prefix = f'_gate_{cls.gate_id or cls.__name__.lower()}'
-        for suffix in ('_at', '_result', '_context'):
+        for suffix in ('_at', '_result', '_context', '_version'):
             request.session.pop(f'{prefix}{suffix}', None)
 
     @classmethod
@@ -203,6 +230,21 @@ class GateMiddleware:
     @property
     def _cache_prefix(self) -> str:
         return f'_gate_{self.gate_id}'
+
+    def _cache_valid(self, request, now: float, ttl: int, version) -> bool:
+        """Decide whether the session-cached result can be reused."""
+        prefix = self._cache_prefix
+
+        # Version mismatch always invalidates (state changed behind the gate)
+        if version is not None and request.session.get(f'{prefix}_version') != version:
+            return False
+
+        passed = request.session[f'{prefix}_result']
+        if passed and not self.recheck_after_pass:
+            return True  # Sticky pass: no TTL re-check once satisfied
+
+        checked_at = request.session.get(f'{prefix}_at', 0)
+        return (now - checked_at) < ttl
 
     def _get_cache_ttl(self) -> int:
         if self.cache_ttl_setting:

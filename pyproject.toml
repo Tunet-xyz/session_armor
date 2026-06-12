@@ -7,7 +7,7 @@ packages = ["src/session_armor"]
 
 [project]
 name = "SessionArmor"
-version = "0.1.0"
+version = "0.2.0"
 description = "Defense-grade Django middleware: session security, audit logging, and configurable request gates with hooks."
 readme = "README.md"
 requires-python = ">=3.10"

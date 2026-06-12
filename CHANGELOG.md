@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-12
+
+### Added
+- **GateMiddleware `recheck_after_pass`** — set to `False` for "check once" gates (onboarding, compliance): a passing result stays cached for the whole session instead of being re-checked on a TTL. Failures still re-check on the TTL, and `invalidate()` still forces an immediate re-check.
+- **GateMiddleware `get_state_version(request)` hook** — return a cheap version stamp (e.g. a Django cache key bumped when an admin publishes a new document version or adds an onboarding step) and the cached gate result is invalidated for every active session the moment the stamp changes, without per-request database hits.
+- `invalidate()` now also clears the stored version stamp.
+
 ## [0.1.0] - 2026-05-22
 
 ### Added

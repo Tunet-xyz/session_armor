@@ -80,6 +80,31 @@ class ComplianceGate(GateMiddleware):
         return redirect('/accept-terms/')
 ```
 
+### "Check once" gates
+
+For gates that should only kick in once (onboarding, compliance), set
+`recheck_after_pass = False`: a passing result stays cached in the session
+with no TTL re-checks. To push new requirements to already-passed sessions
+(a new document version, a new onboarding step), implement
+`get_state_version()` against a shared cache key and bump that key on
+publish — every active session re-checks exactly once, with no per-request
+database hits:
+
+```python
+from django.core.cache import cache
+
+class ComplianceGate(GateMiddleware):
+    gate_id = 'compliance'
+    recheck_after_pass = False  # Pass once, stay passed
+
+    def get_state_version(self, request) -> str | None:
+        # Bumped by admin tooling when a new document version is published
+        return cache.get(f'compliance_version:{request.user.platform}', '')
+
+    def check(self, request) -> bool:
+        return user_accepted_current_terms(request)
+```
+
 ## Customizing Session Security
 
 ```python
