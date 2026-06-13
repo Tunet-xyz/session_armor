@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "tunet.opensource-agent-mcp.v1",
+  "offering": {
+    "id": "session_armor",
+    "name": "SessionArmor",
+    "packageName": "SessionArmor",
+    "status": "production",
+    "license": "MIT",
+    "purpose": "Defense-grade Django middleware for session security, privacy-preserving audit logging, and configurable request gates.",
+    "audiences": ["django-developer", "security-engineer", "customer-agent", "compliance-agent", "maintainer-agent"]
+  },
+  "server": {
+    "name": "session-armor-public-contract-mcp",
+    "title": "SessionArmor Public Agent Contract",
+    "version": "0.1.0",
+    "transport": "stdio",
+    "required": true,
+    "hostedEndpoint": "https://github.com/Tunet-xyz/session_armor/tree/main/mcp"
+  },
+  "instructions": "Agents should assume they do not have access to the user's Django codebase unless explicitly granted. Use public docs, installed package APIs, user-provided settings snippets, and browser-visible docs. Avoid making security changes automatically; prepare reviewed configuration and rollout plans.",
+  "publicAccess": {
+    "mcpEndpoint": "public contract in repository mcp/; future hosted endpoint may expose the same resources",
+    "pythonPackage": "pip install SessionArmor",
+    "pythonApi": ["SessionSecurityMiddleware", "AuditMiddleware", "GateMiddleware"],
+    "cli": [],
+    "docsUrl": "https://github.com/Tunet-xyz/session_armor#readme",
+    "pypiUrl": "https://pypi.org/project/SessionArmor/",
+    "repositoryUrl": "https://github.com/Tunet-xyz/session_armor",
+    "supportedOperationModes": ["mcp-tools", "python-api", "browser-docs"],
+    "browserAutomation": {
+      "allowed": true,
+      "requiresAuthenticatedUserSession": false,
+      "preferredFor": ["reading documentation", "reviewing security references", "opening GitHub issues"],
+      "mustNotDependOn": ["private source code", "local repository paths", "production session data", "raw audit logs without user approval"]
+    }
+  },
+  "resources": [
+    {
+      "uri": "opensource://session_armor/overview",
+      "name": "overview",
+      "title": "Offering Overview",
+      "description": "What SessionArmor does and how agents should explain it.",
+      "mimeType": "text/markdown",
+      "content": "# SessionArmor\n\nSessionArmor provides Django middleware for session hardening, privacy-preserving audit logging, and configurable request gates. Agents can help developers choose middleware ordering, generate settings, design custom gate subclasses, reason about NIST/OWASP-aligned controls, and prepare rollout checklists. Agents should not inspect or export production session data unless a user explicitly provides a safe, redacted sample."
+    },
+    {
+      "uri": "opensource://session_armor/public-apis",
+      "name": "public-apis",
+      "title": "Public APIs And Settings",
+      "description": "Package APIs, settings, and extension points available to agents.",
+      "mimeType": "application/json",
+      "data": {
+        "middleware": ["SessionSecurityMiddleware", "AuditMiddleware", "GateMiddleware"],
+        "settings": ["SESSION_ABSOLUTE_TIMEOUT", "SESSION_IDLE_TIMEOUT", "SESSION_BIND_IP", "SESSION_BIND_USER_AGENT", "SESSION_DETECT_CLAIM_DRIFT", "SESSION_ARMOR_TRUSTED_PROXY_DEPTH"],
+        "extensionPoints": ["exempt_paths", "get_critical_claims(user)", "get_login_url(request)", "get_user_identity(request)", "GateMiddleware.check(request)", "GateMiddleware.on_reject(request)", "GateMiddleware.get_state_version(request)"],
+        "agentAccess": {
+          "canUse": ["public README", "installed package imports", "user-provided settings snippets", "redacted audit examples"],
+          "cannotUse": ["private source code", "production sessions", "raw personal data", "unapproved security policy changes"]
+        }
+      }
+    },
+    {
+      "uri": "opensource://session_armor/workflows",
+      "name": "workflows",
+      "title": "Agent Workflow Catalog",
+      "description": "Safe workflows an agent can perform or prepare for SessionArmor users.",
+      "mimeType": "application/json",
+      "data": [
+        {"id": "install_middleware", "goal": "Generate installation and middleware ordering guidance.", "modes": ["mcp-tools", "browser-docs"], "approval": "user reviews before applying settings"},
+        {"id": "configure_session_security", "goal": "Prepare timeout, binding, proxy-depth, and claim-drift settings.", "modes": ["mcp-tools"], "approval": "required before rollout"},
+        {"id": "design_custom_gate", "goal": "Generate a GateMiddleware subclass for onboarding, compliance, feature flag, or access control.", "modes": ["mcp-tools", "python-api"], "approval": "user reviews fail-open/fail-closed behavior"},
+        {"id": "configure_audit_logging", "goal": "Prepare privacy-preserving audit identity customization and exempt paths.", "modes": ["mcp-tools"], "approval": "required before audit data changes"},
+        {"id": "security_rollout_plan", "goal": "Prepare staged rollout, monitoring, rollback, and user-impact checklist.", "modes": ["mcp-tools", "browser-docs"], "approval": "required before production deployment"}
+      ]
+    },
+    {
+      "uri": "opensource://session_armor/browser-surfaces",
+      "name": "browser-surfaces",
+      "title": "Browser-Visible Surfaces",
+      "description": "Public browser surfaces agents can use without source-code access.",
+      "mimeType": "application/json",
+      "data": {
+        "entrypoints": ["https://github.com/Tunet-xyz/session_armor", "https://pypi.org/project/SessionArmor/", "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"],
+        "agentAssumptions": ["agent can read public docs and security references", "agent cannot observe production app unless user provides a browser session", "agent must ask before changing live security settings"],
+        "verification": ["confirm middleware order in user-provided settings", "confirm exempt paths are minimal", "confirm rollout plan includes monitoring and rollback"]
+      }
+    },
+    {
+      "uri": "opensource://session_armor/security-and-audit",
+      "name": "security-and-audit",
+      "title": "Security And Audit Rules",
+      "description": "Safety expectations for agent operation.",
+      "mimeType": "application/json",
+      "data": {
+        "sensitiveData": ["session keys", "cookies", "raw IP addresses", "user-agent fingerprints", "audit trail personal data"],
+        "humanApprovalRequiredFor": ["timeout policy changes", "IP/user-agent binding changes", "audit identity field changes", "fail-closed gates", "production rollout"],
+        "auditHints": ["record proposed settings", "record security rationale", "record rollout/rollback plan", "redact personal data examples"]
+      }
+    }
+  ],
+  "tools": [
+    {"name": "describe_offering", "title": "Describe SessionArmor", "description": "Explain SessionArmor middleware, settings, extension points, and safe operating model.", "executionMode": "contract", "inputSchema": {"type": "object", "properties": {}}, "annotations": {"readOnlyHint": true, "destructiveHint": false}},
+    {"name": "list_public_capabilities", "title": "List Public Capabilities", "description": "List package APIs, settings, extension points, docs, and security references.", "executionMode": "contract", "inputSchema": {"type": "object", "properties": {"surface": {"type": "string", "enum": ["all", "middleware", "settings", "gates", "audit", "browser-docs"]}}}, "annotations": {"readOnlyHint": true, "destructiveHint": false}},
+    {"name": "map_workflow_to_tools", "title": "Map Workflow To Guidance", "description": "Map a SessionArmor goal to public APIs, settings, approvals, and verification steps.", "executionMode": "contract", "inputSchema": {"type": "object", "properties": {"workflow": {"type": "string"}}, "required": ["workflow"]}, "annotations": {"readOnlyHint": true, "destructiveHint": false}},
+    {"name": "prepare_security_configuration", "title": "Prepare Security Configuration", "description": "Generate a reviewed settings plan for timeouts, fingerprint binding, proxy depth, and claim drift.", "executionMode": "contract", "inputSchema": {"type": "object", "properties": {"riskProfile": {"type": "string"}, "deploymentContext": {"type": "string"}, "proxyDepth": {"type": "integer"}}, "required": ["riskProfile"]}, "annotations": {"readOnlyHint": true, "destructiveHint": false}},
+    {"name": "draft_gate_middleware", "title": "Draft Gate Middleware", "description": "Draft a GateMiddleware subclass with cache semantics, fail mode, and rejection handling.", "executionMode": "contract", "inputSchema": {"type": "object", "properties": {"gatePurpose": {"type": "string"}, "failMode": {"type": "string", "enum": ["fail-open", "fail-closed"]}, "recheckPolicy": {"type": "string"}}, "required": ["gatePurpose"]}, "annotations": {"readOnlyHint": true, "destructiveHint": false}},
+    {"name": "operate_browser_docs", "title": "Operate Browser Docs", "description": "Guide a user through public docs, PyPI, GitHub issues, or security references in a browser.", "executionMode": "browser-session-optional", "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}, "targetUrl": {"type": "string"}}, "required": ["task"]}, "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": true}}
+  ],
+  "prompts": [
+    {"name": "agent_onboarding", "title": "SessionArmor Agent Onboarding", "description": "Orient an agent before helping a developer use SessionArmor.", "arguments": [{"name": "user_goal", "description": "What the user wants to do with SessionArmor.", "required": true}], "template": "You are helping a developer with SessionArmor for: {user_goal}. Use public docs, installed package APIs, and user-provided snippets. Treat security settings as sensitive. Prepare reviewed changes, avoid personal data, and require approval before production rollout."}
+  ],
+  "security": {
+    "tenantScoped": false,
+    "auditRequired": true,
+    "defaultMode": "read-and-plan-first",
+    "approvalRequiredFor": ["security_policy_change", "audit_data_collection_change", "fail_closed_gate", "production_rollout"]
+  },
+  "acceptanceChecklist": [
+    "Agents can discover SessionArmor capabilities without source-code access.",
+    "Security workflows document approval, rollout, verification, and rollback.",
+    "No tool requires raw session data, cookies, or personal audit data.",
+    "Browser workflows rely on public docs, PyPI, GitHub, or user-provided app sessions.",
+    "Generated settings and middleware subclasses are review-first, not auto-applied."
+  ]
+}
