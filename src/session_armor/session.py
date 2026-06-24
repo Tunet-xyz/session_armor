@@ -49,7 +49,7 @@ import time
 from django.conf import settings
 from django.shortcuts import redirect
 
-from .utils import get_client_ip, is_authenticated
+from .utils import get_client_ip, is_authenticated, path_is_exempt
 
 logger = logging.getLogger('session_armor.session')
 
@@ -78,6 +78,14 @@ class SessionSecurityMiddleware:
 
     # ── Configuration ────────────────────────────────────────────────────
     exempt_paths: tuple[str, ...] = ()
+
+    # Minimum seconds between ``_ss_last_active`` writes. ``0`` (default)
+    # updates the timestamp on every request — preserving the original
+    # behavior. Raise it (e.g. to 60) to cut session-store write
+    # amplification on busy sessions; idle-timeout granularity then coarsens
+    # to roughly this value, which is harmless as long as it stays well
+    # below ``SESSION_IDLE_TIMEOUT``.
+    last_active_resolution: int = 0
 
     # ── Django middleware protocol ────────────────────────────────────────
 
@@ -134,8 +142,10 @@ class SessionSecurityMiddleware:
             self._init_session(request, now)
             self.on_session_init(request)
 
-        # ── Update last-active ──
-        request.session['_ss_last_active'] = now
+        # ── Update last-active (throttled to limit session-store writes) ──
+        prev_active = request.session.get('_ss_last_active', 0)
+        if (now - prev_active) >= self.last_active_resolution:
+            request.session['_ss_last_active'] = now
 
         return self.get_response(request)
 
@@ -260,4 +270,4 @@ class SessionSecurityMiddleware:
         return redirect(login_url)
 
     def _is_exempt(self, request) -> bool:
-        return any(request.path.startswith(p) for p in self.exempt_paths)
+        return path_is_exempt(request.path, self.exempt_paths)

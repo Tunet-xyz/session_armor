@@ -7,6 +7,7 @@ from session_armor.utils import (
     hash_ip,
     hash_value,
     is_authenticated,
+    path_is_exempt,
     sanitize_for_log,
 )
 
@@ -181,3 +182,29 @@ class TestSanitizeForLog:
         long_string = "a" * 300
         result = sanitize_for_log(long_string)
         assert len(result) == 200
+
+
+# ── path_is_exempt ───────────────────────────────────────────────────────
+
+class TestPathIsExempt:
+    def test_exact_match(self):
+        assert path_is_exempt('/health', ('/health',)) is True
+
+    def test_subpath_with_trailing_slash_prefix(self):
+        assert path_is_exempt('/health/live', ('/health/',)) is True
+
+    def test_subpath_without_trailing_slash_prefix(self):
+        assert path_is_exempt('/health/live', ('/health',)) is True
+
+    def test_sibling_prefix_not_exempt(self):
+        # The key hardening: a shared string prefix must not leak exemption.
+        assert path_is_exempt('/health-internal', ('/health',)) is False
+
+    def test_no_prefixes(self):
+        assert path_is_exempt('/anything', ()) is False
+
+    def test_multiple_prefixes(self):
+        prefixes = ('/static/', '/health')
+        assert path_is_exempt('/static/app.css', prefixes) is True
+        assert path_is_exempt('/health/ping', prefixes) is True
+        assert path_is_exempt('/admin', prefixes) is False

@@ -118,6 +118,13 @@ class ComplianceGate(GateMiddleware):
         return user_accepted_current_terms(request)
 ```
 
+> **Sticky passes and revocation.** With `recheck_after_pass = False`, a pass
+> is cached until the session ends, `invalidate()` is called, or the state
+> version changes — so it is **not** appropriate for authorization/entitlement
+> gates where access may be revoked. For those, use a normal TTL gate, drive
+> `get_state_version()`, or set `sticky_pass_max_age` (seconds) to cap how long
+> a sticky pass may be reused before a forced re-check.
+
 ## Customizing Session Security
 
 ```python
@@ -125,6 +132,7 @@ from session_armor import SessionSecurityMiddleware
 
 class MySessionSecurity(SessionSecurityMiddleware):
     exempt_paths = ('/health/', '/static/')
+    last_active_resolution = 60  # only rewrite last-active timestamp every 60s
 
     def get_critical_claims(self, user):
         # Auth0 / OIDC claims that must not change mid-session

@@ -37,7 +37,13 @@ import logging
 import time
 import uuid
 
-from .utils import get_client_ip, hash_ip, is_authenticated, sanitize_for_log
+from .utils import (
+    get_client_ip,
+    hash_ip,
+    is_authenticated,
+    path_is_exempt,
+    sanitize_for_log,
+)
 
 logger = logging.getLogger('security.audit')
 
@@ -171,4 +177,4 @@ class AuditMiddleware:
             self._logger.log(level, message)
 
     def _is_exempt(self, request) -> bool:
-        return any(request.path.startswith(p) for p in self.exempt_paths)
+        return path_is_exempt(request.path, self.exempt_paths)

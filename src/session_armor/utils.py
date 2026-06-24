@@ -135,3 +135,24 @@ def sanitize_for_log(value: str, max_length: int = 200) -> str:
     """
     clean = _LOG_UNSAFE_RE.sub('', value)
     return clean[:max_length]
+
+
+def path_is_exempt(path: str, prefixes: tuple[str, ...]) -> bool:
+    """
+    Return ``True`` if *path* falls under any exempt *prefix*.
+
+    Matching respects path-segment boundaries: a prefix matches the exact
+    path or a path immediately followed by ``/``. So ``/health`` exempts
+    ``/health`` and ``/health/live`` but **not** ``/health-internal``.
+
+    Plain ``str.startswith`` would let ``/health`` accidentally exempt
+    sibling paths like ``/health-internal`` that merely share a string
+    prefix — a classic way to widen an exemption further than intended.
+    """
+    for prefix in prefixes:
+        if path == prefix:
+            return True
+        boundary = prefix if prefix.endswith('/') else prefix + '/'
+        if path.startswith(boundary):
+            return True
+    return False

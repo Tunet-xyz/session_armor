@@ -35,7 +35,7 @@ import time
 
 from django.conf import settings
 
-from .utils import is_authenticated
+from .utils import is_authenticated, path_is_exempt
 
 logger = logging.getLogger('session_armor.gate')
 
@@ -58,6 +58,16 @@ class GateMiddleware:
                             a passing result then stays cached for the whole
                             session, until ``invalidate()`` is called or the
                             state version changes.
+        sticky_pass_max_age Hard cap (seconds) on how long a sticky pass
+                            (``recheck_after_pass=False``) may be reused
+                            before a re-check is forced, regardless of TTL.
+                            ``None`` (default) means unbounded. **Set this
+                            for authorization/entitlement gates**: with an
+                            unbounded sticky pass, a revoked user keeps
+                            access until the session ends, ``invalidate()``
+                            is called, or ``get_state_version()`` changes.
+                            For revocation-sensitive checks, prefer a normal
+                            TTL gate or a ``get_state_version()`` stamp.
 
     Hooks (override any combination in your subclass):
 
@@ -79,6 +89,7 @@ class GateMiddleware:
     requires_auth: bool = True
     fail_open: bool = False
     recheck_after_pass: bool = True
+    sticky_pass_max_age: int | None = None
 
     # ── Django middleware protocol ────────────────────────────────────────
 
@@ -241,7 +252,12 @@ class GateMiddleware:
 
         passed = request.session[f'{prefix}_result']
         if passed and not self.recheck_after_pass:
-            return True  # Sticky pass: no TTL re-check once satisfied
+            # Sticky pass: skip the TTL re-check, but still honor an optional
+            # absolute lifetime cap so revocation can't be deferred forever.
+            if self.sticky_pass_max_age is None:
+                return True
+            checked_at = request.session.get(f'{prefix}_at', 0)
+            return (now - checked_at) < self.sticky_pass_max_age
 
         checked_at = request.session.get(f'{prefix}_at', 0)
         return (now - checked_at) < ttl
@@ -252,4 +268,4 @@ class GateMiddleware:
         return self.default_cache_ttl
 
     def _is_exempt(self, request) -> bool:
-        return any(request.path.startswith(p) for p in self.exempt_paths)
+        return path_is_exempt(request.path, self.exempt_paths)
