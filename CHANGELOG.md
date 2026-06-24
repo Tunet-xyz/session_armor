@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Audit IP pseudonymization is now non-reversible.** `AuditMiddleware` previously logged the client IP as an unsalted, truncated SHA-256, which is trivially reversible for the small IPv4 space — defeating the "privacy-preserving" guarantee. IPs are now hashed with a keyed HMAC-SHA256 (`hash_ip()`), peppered by the new `SESSION_ARMOR_AUDIT_PEPPER` setting (falls back to `SECRET_KEY`). Hash tokens stay deterministic for correlation but change value; back-compat with previously logged tokens is intentionally broken.
+- **`SESSION_ARMOR_TRUSTED_PROXY_DEPTH` now defaults to `1` instead of `0`.** The previous default trusted the leftmost, fully client-controlled `X-Forwarded-For` entry, allowing source-IP spoofing of fingerprint binding and audit logs when the setting was left unset (contradicting the documented default). Deployments with no reverse proxy that relied on the old leftmost behavior must set the value to `0` explicitly.
+- **Audit log injection hardening.** All string fields in an audit entry — including custom `get_user_identity()` / `get_extra_fields()` values such as a JWT `sub` claim — are now run through `sanitize_for_log()`, not just `path` and `ua`. This prevents embedded newlines/control characters in attacker-influenced fields from forging log lines.
+
 ## [0.2.0] - 2026-06-12
 
 ### Added

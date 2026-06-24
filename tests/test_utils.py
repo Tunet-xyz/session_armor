@@ -4,6 +4,7 @@ import pytest
 
 from session_armor.utils import (
     get_client_ip,
+    hash_ip,
     hash_value,
     is_authenticated,
     sanitize_for_log,
@@ -39,6 +40,44 @@ class TestHashValue:
     def test_full_length(self):
         result = hash_value("test")
         assert len(result) == 64  # SHA-256 hex
+
+
+# ── hash_ip ──────────────────────────────────────────────────────────────
+
+class TestHashIp:
+    def test_deterministic(self, settings):
+        settings.SESSION_ARMOR_AUDIT_PEPPER = 'pepper'
+        assert hash_ip('1.2.3.4') == hash_ip('1.2.3.4')
+
+    def test_different_ips(self, settings):
+        settings.SESSION_ARMOR_AUDIT_PEPPER = 'pepper'
+        assert hash_ip('1.2.3.4') != hash_ip('1.2.3.5')
+
+    def test_default_length(self, settings):
+        settings.SESSION_ARMOR_AUDIT_PEPPER = 'pepper'
+        assert len(hash_ip('1.2.3.4')) == 16
+
+    def test_full_length(self, settings):
+        settings.SESSION_ARMOR_AUDIT_PEPPER = 'pepper'
+        assert len(hash_ip('1.2.3.4', length=0)) == 64
+
+    def test_pepper_changes_digest(self, settings):
+        settings.SESSION_ARMOR_AUDIT_PEPPER = 'pepper-a'
+        a = hash_ip('1.2.3.4', length=0)
+        settings.SESSION_ARMOR_AUDIT_PEPPER = 'pepper-b'
+        b = hash_ip('1.2.3.4', length=0)
+        assert a != b
+
+    def test_not_equal_to_unkeyed_hash(self, settings):
+        # The whole point: keyed digest must differ from the reversible
+        # unsalted SHA-256 an attacker would precompute.
+        settings.SESSION_ARMOR_AUDIT_PEPPER = 'pepper'
+        assert hash_ip('1.2.3.4', length=0) != hash_value('1.2.3.4')
+
+    def test_falls_back_to_secret_key(self, settings):
+        # No dedicated pepper → uses SECRET_KEY, still keyed (not raw SHA-256).
+        settings.SESSION_ARMOR_AUDIT_PEPPER = ''
+        assert hash_ip('1.2.3.4', length=0) != hash_value('1.2.3.4')
 
 
 # ── get_client_ip ────────────────────────────────────────────────────────
@@ -87,6 +126,17 @@ class TestGetClientIp:
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
         req = FakeRequest({})
         assert get_client_ip(req) == ''
+
+    def test_default_depth_is_secure(self, settings):
+        # With the setting absent, the default must NOT trust a fully
+        # client-controlled single-entry X-Forwarded-For; it falls back to
+        # REMOTE_ADDR (depth defaults to 1, not 0).
+        del settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH
+        req = FakeRequest({
+            'HTTP_X_FORWARDED_FOR': 'spoofed',
+            'REMOTE_ADDR': '127.0.0.1',
+        })
+        assert get_client_ip(req) == '127.0.0.1'
 
 
 # ── is_authenticated ─────────────────────────────────────────────────────

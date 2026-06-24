@@ -58,8 +58,21 @@ SESSION_IDLE_TIMEOUT = 1800           # 30 minutes
 SESSION_BIND_IP = True
 SESSION_BIND_USER_AGENT = True
 SESSION_DETECT_CLAIM_DRIFT = True
-SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1  # Number of trusted reverse proxies
+SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1  # Number of trusted reverse proxies (set 0 only if you have none)
+SESSION_ARMOR_AUDIT_PEPPER = SECRET_KEY  # Secret key for non-reversible audit IP hashing
 ```
+
+> **Note on audit IP hashing.** Audit logs pseudonymize the client IP with a
+> keyed HMAC-SHA256 so the value can't be reversed from the (low-entropy) IPv4
+> space. Set a dedicated `SESSION_ARMOR_AUDIT_PEPPER` to rotate it independently
+> of `SECRET_KEY`, or to share it across services for cross-log correlation.
+> If unset, it falls back to `SECRET_KEY`.
+
+> **Note on proxy depth.** `SESSION_ARMOR_TRUSTED_PROXY_DEPTH` defaults to `1`.
+> It must match the number of reverse proxies you actually run in front of the
+> app, so that `X-Forwarded-For` can't be spoofed. Set it to `0` *only* if there
+> is no proxy (this trusts the client-supplied leftmost entry and is unsafe
+> behind a proxy).
 
 ## Building a Gate
 

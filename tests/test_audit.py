@@ -101,6 +101,23 @@ class TestAuditMiddleware:
 
         assert 'custom-id' in caplog.records[0].message
 
+    def test_identity_field_log_injection_sanitized(self, caplog, settings):
+        settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
+
+        class InjectionAudit(AuditMiddleware):
+            def get_user_identity(self, request):
+                # Attacker-influenced claim attempting to forge a log line.
+                return {'uid': 'evil\nAUDIT forged-entry'}
+
+        middleware = InjectionAudit(ok_response)
+        request = make_request()
+
+        with caplog.at_level(logging.DEBUG, logger='security.audit'):
+            middleware(request)
+
+        assert len(caplog.records) == 1
+        assert '\n' not in caplog.records[0].message
+
     def test_before_log_suppression(self, caplog, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
 
