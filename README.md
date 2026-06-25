@@ -58,8 +58,21 @@ SESSION_IDLE_TIMEOUT = 1800           # 30 minutes
 SESSION_BIND_IP = True
 SESSION_BIND_USER_AGENT = True
 SESSION_DETECT_CLAIM_DRIFT = True
-SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1  # Number of trusted reverse proxies
+SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1  # Number of trusted reverse proxies (set 0 only if you have none)
+SESSION_ARMOR_AUDIT_PEPPER = SECRET_KEY  # Secret key for non-reversible audit IP hashing
 ```
+
+> **Note on audit IP hashing.** Audit logs pseudonymize the client IP with a
+> keyed HMAC-SHA256 so the value can't be reversed from the (low-entropy) IPv4
+> space. Set a dedicated `SESSION_ARMOR_AUDIT_PEPPER` to rotate it independently
+> of `SECRET_KEY`, or to share it across services for cross-log correlation.
+> If unset, it falls back to `SECRET_KEY`.
+
+> **Note on proxy depth.** `SESSION_ARMOR_TRUSTED_PROXY_DEPTH` defaults to `1`.
+> It must match the number of reverse proxies you actually run in front of the
+> app, so that `X-Forwarded-For` can't be spoofed. Set it to `0` *only* if there
+> is no proxy (this trusts the client-supplied leftmost entry and is unsafe
+> behind a proxy).
 
 ## Building a Gate
 
@@ -105,6 +118,13 @@ class ComplianceGate(GateMiddleware):
         return user_accepted_current_terms(request)
 ```
 
+> **Sticky passes and revocation.** With `recheck_after_pass = False`, a pass
+> is cached until the session ends, `invalidate()` is called, or the state
+> version changes — so it is **not** appropriate for authorization/entitlement
+> gates where access may be revoked. For those, use a normal TTL gate, drive
+> `get_state_version()`, or set `sticky_pass_max_age` (seconds) to cap how long
+> a sticky pass may be reused before a forced re-check.
+
 ## Customizing Session Security
 
 ```python
@@ -112,6 +132,7 @@ from session_armor import SessionSecurityMiddleware
 
 class MySessionSecurity(SessionSecurityMiddleware):
     exempt_paths = ('/health/', '/static/')
+    last_active_resolution = 60  # only rewrite last-active timestamp every 60s
 
     def get_critical_claims(self, user):
         # Auth0 / OIDC claims that must not change mid-session

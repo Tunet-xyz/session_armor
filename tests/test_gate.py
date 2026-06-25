@@ -194,6 +194,50 @@ class TestGateMiddleware:
         assert response.status_code == 200
         assert calls == [1]
 
+    def test_sticky_pass_max_age_forces_recheck(self):
+        calls = []
+
+        class CappedStickyGate(GateMiddleware):
+            gate_id = 'test_sticky_cap'
+            recheck_after_pass = False
+            sticky_pass_max_age = 3600
+
+            def check(self, request) -> bool:
+                calls.append(1)
+                return True
+
+        middleware = CappedStickyGate(ok_response)
+        request = make_request()
+        # Sticky pass older than the absolute cap → must re-check.
+        request.session['_gate_test_sticky_cap_at'] = time.time() - 7200
+        request.session['_gate_test_sticky_cap_result'] = True
+
+        response = middleware(request)
+        assert response.status_code == 200
+        assert calls == [1]  # re-checked despite sticky pass
+
+    def test_sticky_pass_within_max_age_uses_cache(self):
+        calls = []
+
+        class CappedStickyGate(GateMiddleware):
+            gate_id = 'test_sticky_cap_hit'
+            recheck_after_pass = False
+            sticky_pass_max_age = 3600
+
+            def check(self, request) -> bool:
+                calls.append(1)
+                return True
+
+        middleware = CappedStickyGate(ok_response)
+        request = make_request()
+        # Sticky pass still within the cap → no re-check.
+        request.session['_gate_test_sticky_cap_hit_at'] = time.time() - 60
+        request.session['_gate_test_sticky_cap_hit_result'] = True
+
+        response = middleware(request)
+        assert response.status_code == 200
+        assert calls == []
+
     def test_version_mismatch_invalidates_cache(self):
         calls = []
 

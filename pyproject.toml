@@ -42,6 +42,8 @@ dev = [
   "ruff>=0.4",
   "mypy>=1.0.0",
   "django-stubs>=4.2.0",
+  "bandit>=1.7",
+  "pip-audit>=2.7",
 ]
 
 [project.urls]

@@ -37,7 +37,13 @@ import logging
 import time
 import uuid
 
-from .utils import get_client_ip, hash_value, is_authenticated, sanitize_for_log
+from .utils import (
+    get_client_ip,
+    hash_ip,
+    is_authenticated,
+    path_is_exempt,
+    sanitize_for_log,
+)
 
 logger = logging.getLogger('security.audit')
 
@@ -139,7 +145,7 @@ class AuditMiddleware:
             'method': request.method,
             'path': sanitize_for_log(request.path, max_length=500),
             'status': response.status_code,
-            'ip_hash': hash_value(ip, length=16),
+            'ip_hash': hash_ip(ip, length=16),
             'ua': sanitize_for_log(
                 request.META.get('HTTP_USER_AGENT', ''), max_length=80
             ),
@@ -151,6 +157,17 @@ class AuditMiddleware:
         if entry is None:
             return
 
+        # Defense-in-depth: sanitize *every* string value, not just path/ua.
+        # Custom identity and extra fields (e.g. a JWT ``sub`` claim) are
+        # otherwise attacker-influenced and could forge log lines via embedded
+        # newlines/control characters.
+        entry = {
+            key: sanitize_for_log(value, max_length=500)
+            if isinstance(value, str)
+            else value
+            for key, value in entry.items()
+        }
+
         level = self.get_log_level(response.status_code)
         message = self.format_entry(entry)
 
@@ -160,4 +177,4 @@ class AuditMiddleware:
             self._logger.log(level, message)
 
     def _is_exempt(self, request) -> bool:
-        return any(request.path.startswith(p) for p in self.exempt_paths)
+        return path_is_exempt(request.path, self.exempt_paths)

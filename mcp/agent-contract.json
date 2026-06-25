@@ -51,7 +51,7 @@
       "mimeType": "application/json",
       "data": {
         "middleware": ["SessionSecurityMiddleware", "AuditMiddleware", "GateMiddleware"],
-        "settings": ["SESSION_ABSOLUTE_TIMEOUT", "SESSION_IDLE_TIMEOUT", "SESSION_BIND_IP", "SESSION_BIND_USER_AGENT", "SESSION_DETECT_CLAIM_DRIFT", "SESSION_ARMOR_TRUSTED_PROXY_DEPTH"],
+        "settings": ["SESSION_ABSOLUTE_TIMEOUT", "SESSION_IDLE_TIMEOUT", "SESSION_BIND_IP", "SESSION_BIND_USER_AGENT", "SESSION_DETECT_CLAIM_DRIFT", "SESSION_ARMOR_TRUSTED_PROXY_DEPTH", "SESSION_ARMOR_AUDIT_PEPPER"],
         "extensionPoints": ["exempt_paths", "get_critical_claims(user)", "get_login_url(request)", "get_user_identity(request)", "GateMiddleware.check(request)", "GateMiddleware.on_reject(request)", "GateMiddleware.get_state_version(request)"],
         "agentAccess": {
           "canUse": ["public README", "installed package imports", "user-provided settings snippets", "redacted audit examples"],

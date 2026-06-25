@@ -88,6 +88,47 @@ class TestSessionSecurityMiddleware:
         assert response.status_code == 200
         assert request.session['_ss_last_active'] > now - 10
 
+    def test_last_active_throttled_skips_recent_write(self, settings):
+        settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
+
+        class ThrottledSecurity(SessionSecurityMiddleware):
+            last_active_resolution = 60
+
+        middleware = ThrottledSecurity(ok_response)
+        request = make_request()
+
+        now = time.time()
+        recent = now - 5  # within the 60s resolution window
+        request.session['_ss_auth_time'] = now
+        request.session['_ss_last_active'] = recent
+        request.session['_ss_fingerprint'] = _fingerprint()
+        request.session['_ss_claims_hash'] = _claims_hash()
+
+        response = middleware(request)
+        assert response.status_code == 200
+        # Not enough time elapsed → timestamp left untouched (no session write).
+        assert request.session['_ss_last_active'] == recent
+
+    def test_last_active_throttled_writes_after_resolution(self, settings):
+        settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
+
+        class ThrottledSecurity(SessionSecurityMiddleware):
+            last_active_resolution = 60
+
+        middleware = ThrottledSecurity(ok_response)
+        request = make_request()
+
+        now = time.time()
+        stale = now - 120  # beyond the resolution window
+        request.session['_ss_auth_time'] = now
+        request.session['_ss_last_active'] = stale
+        request.session['_ss_fingerprint'] = _fingerprint()
+        request.session['_ss_claims_hash'] = _claims_hash()
+
+        response = middleware(request)
+        assert response.status_code == 200
+        assert request.session['_ss_last_active'] > stale
+
     def test_absolute_timeout(self, settings):
         settings.SESSION_ABSOLUTE_TIMEOUT = 100
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
