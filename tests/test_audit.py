@@ -2,7 +2,6 @@
 
 import logging
 
-import pytest
 from django.http import HttpResponse
 from django.test import RequestFactory
 
@@ -11,7 +10,7 @@ from session_armor.audit import AuditMiddleware
 
 class FakeUser:
     is_authenticated = True
-    sub = 'user-456'
+    sub = "user-456"
     pk = 42
 
 
@@ -23,12 +22,12 @@ def error_response(request):
     return HttpResponse("Forbidden", status=403)
 
 
-def make_request(path='/test/', authenticated=True):
+def make_request(path="/test/", authenticated=True):
     factory = RequestFactory()
     request = factory.get(path)
     if authenticated:
         request.user = FakeUser()
-    request.META['REMOTE_ADDR'] = '10.0.0.1'
+    request.META["REMOTE_ADDR"] = "10.0.0.1"
     return request
 
 
@@ -37,26 +36,26 @@ class TestAuditMiddleware:
         middleware = AuditMiddleware(ok_response)
         request = make_request()
         middleware(request)
-        assert 'X_REQUEST_ID' in request.META
-        assert len(request.META['X_REQUEST_ID']) == 8
+        assert "X_REQUEST_ID" in request.META
+        assert len(request.META["X_REQUEST_ID"]) == 8
 
     def test_logs_authenticated_request(self, caplog, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
         middleware = AuditMiddleware(ok_response)
         request = make_request()
 
-        with caplog.at_level(logging.DEBUG, logger='security.audit'):
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
             middleware(request)
 
         assert len(caplog.records) == 1
-        assert 'AUDIT' in caplog.records[0].message
+        assert "AUDIT" in caplog.records[0].message
 
     def test_skips_unauthenticated(self, caplog, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
         middleware = AuditMiddleware(ok_response)
         request = make_request(authenticated=False)
 
-        with caplog.at_level(logging.DEBUG, logger='security.audit'):
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
             middleware(request)
 
         assert len(caplog.records) == 0
@@ -66,22 +65,22 @@ class TestAuditMiddleware:
         middleware = AuditMiddleware(error_response)
         request = make_request()
 
-        with caplog.at_level(logging.DEBUG, logger='security.audit'):
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
             middleware(request)
 
         assert len(caplog.records) == 1
-        assert 'AUDIT_DENIED' in caplog.records[0].message
+        assert "AUDIT_DENIED" in caplog.records[0].message
 
     def test_exempt_path_skips_logging(self, caplog, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
 
         class ExemptAudit(AuditMiddleware):
-            exempt_paths = ('/health/',)
+            exempt_paths = ("/health/",)
 
         middleware = ExemptAudit(ok_response)
-        request = make_request(path='/health/ping')
+        request = make_request(path="/health/ping")
 
-        with caplog.at_level(logging.DEBUG, logger='security.audit'):
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
             middleware(request)
 
         assert len(caplog.records) == 0
@@ -91,15 +90,15 @@ class TestAuditMiddleware:
 
         class CustomAudit(AuditMiddleware):
             def get_user_identity(self, request):
-                return {'uid': 'custom-id', 'role': 'admin'}
+                return {"uid": "custom-id", "role": "admin"}
 
         middleware = CustomAudit(ok_response)
         request = make_request()
 
-        with caplog.at_level(logging.DEBUG, logger='security.audit'):
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
             middleware(request)
 
-        assert 'custom-id' in caplog.records[0].message
+        assert "custom-id" in caplog.records[0].message
 
     def test_identity_field_log_injection_sanitized(self, caplog, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
@@ -107,16 +106,16 @@ class TestAuditMiddleware:
         class InjectionAudit(AuditMiddleware):
             def get_user_identity(self, request):
                 # Attacker-influenced claim attempting to forge a log line.
-                return {'uid': 'evil\nAUDIT forged-entry'}
+                return {"uid": "evil\nAUDIT forged-entry"}
 
         middleware = InjectionAudit(ok_response)
         request = make_request()
 
-        with caplog.at_level(logging.DEBUG, logger='security.audit'):
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
             middleware(request)
 
         assert len(caplog.records) == 1
-        assert '\n' not in caplog.records[0].message
+        assert "\n" not in caplog.records[0].message
 
     def test_before_log_suppression(self, caplog, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
@@ -128,7 +127,7 @@ class TestAuditMiddleware:
         middleware = SuppressAudit(ok_response)
         request = make_request()
 
-        with caplog.at_level(logging.DEBUG, logger='security.audit'):
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
             middleware(request)
 
         assert len(caplog.records) == 0

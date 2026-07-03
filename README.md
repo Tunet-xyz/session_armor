@@ -183,6 +183,13 @@ mypy src/session_armor
 ## Public Agent MCP Contract
 
 SessionArmor includes a public agent-operability contract in [`mcp/`](mcp/). It describes how external agents can safely help with middleware ordering, security settings, audit customization, gate design, browser-visible docs, and rollout planning without requiring source-code access or production session data.
+
+From a checkout, run the dependency-free contract server with `python mcp/server.py`. After installation, agents can use the packaged stdio command:
+
+```bash
+sessionarmor-mcp
+```
+
 ## License
 
 MIT — Copyright (c) 2024-2026 Tunet Ltd. See [LICENSE](LICENSE).

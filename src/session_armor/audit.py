@@ -45,7 +45,7 @@ from .utils import (
     sanitize_for_log,
 )
 
-logger = logging.getLogger('security.audit')
+logger = logging.getLogger("security.audit")
 
 
 class AuditMiddleware:
@@ -61,7 +61,7 @@ class AuditMiddleware:
     """
 
     # ── Configuration ────────────────────────────────────────────────────
-    logger_name: str = 'security.audit'
+    logger_name: str = "security.audit"
     exempt_paths: tuple[str, ...] = ()
 
     # ── Django middleware protocol ────────────────────────────────────────
@@ -76,7 +76,7 @@ class AuditMiddleware:
 
         # Attach request ID for correlation
         request_id = str(uuid.uuid4())[:8]
-        request.META['X_REQUEST_ID'] = request_id
+        request.META["X_REQUEST_ID"] = request_id
         start = time.time()
 
         response = self.get_response(request)
@@ -100,7 +100,7 @@ class AuditMiddleware:
         """
         user = request.user
         return {
-            'uid': getattr(user, 'sub', None) or str(getattr(user, 'pk', '')),
+            "uid": getattr(user, "sub", None) or str(getattr(user, "pk", "")),
         }
 
     def get_extra_fields(self, request, response) -> dict:
@@ -140,16 +140,14 @@ class AuditMiddleware:
         ip = get_client_ip(request)
 
         entry = {
-            'rid': request_id,
+            "rid": request_id,
             **self.get_user_identity(request),
-            'method': request.method,
-            'path': sanitize_for_log(request.path, max_length=500),
-            'status': response.status_code,
-            'ip_hash': hash_ip(ip, length=16),
-            'ua': sanitize_for_log(
-                request.META.get('HTTP_USER_AGENT', ''), max_length=80
-            ),
-            'ms': duration_ms,
+            "method": request.method,
+            "path": sanitize_for_log(request.path, max_length=500),
+            "status": response.status_code,
+            "ip_hash": hash_ip(ip, length=16),
+            "ua": sanitize_for_log(request.META.get("HTTP_USER_AGENT", ""), max_length=80),
+            "ms": duration_ms,
             **self.get_extra_fields(request, response),
         }
 
@@ -162,9 +160,7 @@ class AuditMiddleware:
         # otherwise attacker-influenced and could forge log lines via embedded
         # newlines/control characters.
         entry = {
-            key: sanitize_for_log(value, max_length=500)
-            if isinstance(value, str)
-            else value
+            key: sanitize_for_log(value, max_length=500) if isinstance(value, str) else value
             for key, value in entry.items()
         }
 
@@ -172,7 +168,7 @@ class AuditMiddleware:
         message = self.format_entry(entry)
 
         if response.status_code in (401, 403):
-            self._logger.log(level, message.replace('AUDIT', 'AUDIT_DENIED', 1))
+            self._logger.log(level, message.replace("AUDIT", "AUDIT_DENIED", 1))
         else:
             self._logger.log(level, message)
 

@@ -2,29 +2,28 @@
 
 import time
 
-import pytest
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse
 from django.test import RequestFactory
 
 from session_armor.gate import GateMiddleware
 
 
 class PassGate(GateMiddleware):
-    gate_id = 'test_pass'
+    gate_id = "test_pass"
 
     def check(self, request) -> bool:
         return True
 
 
 class FailGate(GateMiddleware):
-    gate_id = 'test_fail'
+    gate_id = "test_fail"
 
     def check(self, request) -> bool:
         return False
 
 
 class ErrorGate(GateMiddleware):
-    gate_id = 'test_error'
+    gate_id = "test_error"
     fail_open = False
 
     def check(self, request) -> bool:
@@ -32,7 +31,7 @@ class ErrorGate(GateMiddleware):
 
 
 class ErrorGateFailOpen(GateMiddleware):
-    gate_id = 'test_error_open'
+    gate_id = "test_error_open"
     fail_open = True
 
     def check(self, request) -> bool:
@@ -47,7 +46,7 @@ def ok_response(request):
     return HttpResponse("OK")
 
 
-def make_request(path='/test/', authenticated=True):
+def make_request(path="/test/", authenticated=True):
     factory = RequestFactory()
     request = factory.get(path)
     if authenticated:
@@ -57,6 +56,7 @@ def make_request(path='/test/', authenticated=True):
 
 
 # ── Tests ────────────────────────────────────────────────────────────────
+
 
 class TestGateMiddleware:
     def test_pass_gate(self):
@@ -79,10 +79,10 @@ class TestGateMiddleware:
 
     def test_exempt_path_skips_gate(self):
         class ExemptGate(FailGate):
-            exempt_paths = ('/test/',)
+            exempt_paths = ("/test/",)
 
         middleware = ExemptGate(ok_response)
-        request = make_request(path='/test/something')
+        request = make_request(path="/test/something")
         response = middleware(request)
         assert response.status_code == 200
 
@@ -90,8 +90,8 @@ class TestGateMiddleware:
         middleware = PassGate(ok_response)
         request = make_request()
         now = time.time()
-        request.session['_gate_test_pass_at'] = now
-        request.session['_gate_test_pass_result'] = True
+        request.session["_gate_test_pass_at"] = now
+        request.session["_gate_test_pass_result"] = True
 
         response = middleware(request)
         assert response.status_code == 200
@@ -100,8 +100,8 @@ class TestGateMiddleware:
         middleware = PassGate(ok_response)
         middleware.default_cache_ttl = 60
         request = make_request()
-        request.session['_gate_test_pass_at'] = time.time() - 120
-        request.session['_gate_test_pass_result'] = False
+        request.session["_gate_test_pass_at"] = time.time() - 120
+        request.session["_gate_test_pass_result"] = False
 
         # Cache expired → re-check → PassGate returns True → 200
         response = middleware(request)
@@ -121,20 +121,20 @@ class TestGateMiddleware:
 
     def test_invalidate_clears_session(self):
         request = make_request()
-        request.session['_gate_test_pass_at'] = time.time()
-        request.session['_gate_test_pass_result'] = True
-        request.session['_gate_test_pass_context'] = {'foo': 'bar'}
+        request.session["_gate_test_pass_at"] = time.time()
+        request.session["_gate_test_pass_result"] = True
+        request.session["_gate_test_pass_context"] = {"foo": "bar"}
 
         PassGate.invalidate(request)
 
-        assert '_gate_test_pass_at' not in request.session
-        assert '_gate_test_pass_result' not in request.session
-        assert '_gate_test_pass_context' not in request.session
+        assert "_gate_test_pass_at" not in request.session
+        assert "_gate_test_pass_result" not in request.session
+        assert "_gate_test_pass_context" not in request.session
 
     def test_get_context(self):
         request = make_request()
-        request.session['_gate_test_pass_context'] = {'step': 3}
-        assert PassGate.get_context(request) == {'step': 3}
+        request.session["_gate_test_pass_context"] = {"step": 3}
+        assert PassGate.get_context(request) == {"step": 3}
 
     def test_get_context_empty(self):
         request = make_request()
@@ -154,7 +154,7 @@ class TestGateMiddleware:
         calls = []
 
         class StickyGate(GateMiddleware):
-            gate_id = 'test_sticky'
+            gate_id = "test_sticky"
             recheck_after_pass = False
             default_cache_ttl = 60
 
@@ -165,8 +165,8 @@ class TestGateMiddleware:
         middleware = StickyGate(ok_response)
         request = make_request()
         # Cached pass from long before the TTL window
-        request.session['_gate_test_sticky_at'] = time.time() - 9999
-        request.session['_gate_test_sticky_result'] = True
+        request.session["_gate_test_sticky_at"] = time.time() - 9999
+        request.session["_gate_test_sticky_result"] = True
 
         response = middleware(request)
         assert response.status_code == 200
@@ -176,7 +176,7 @@ class TestGateMiddleware:
         calls = []
 
         class StickyGate(GateMiddleware):
-            gate_id = 'test_sticky_fail'
+            gate_id = "test_sticky_fail"
             recheck_after_pass = False
             default_cache_ttl = 60
 
@@ -187,8 +187,8 @@ class TestGateMiddleware:
         middleware = StickyGate(ok_response)
         request = make_request()
         # Cached *failure* past the TTL → must re-check
-        request.session['_gate_test_sticky_fail_at'] = time.time() - 120
-        request.session['_gate_test_sticky_fail_result'] = False
+        request.session["_gate_test_sticky_fail_at"] = time.time() - 120
+        request.session["_gate_test_sticky_fail_result"] = False
 
         response = middleware(request)
         assert response.status_code == 200
@@ -198,7 +198,7 @@ class TestGateMiddleware:
         calls = []
 
         class CappedStickyGate(GateMiddleware):
-            gate_id = 'test_sticky_cap'
+            gate_id = "test_sticky_cap"
             recheck_after_pass = False
             sticky_pass_max_age = 3600
 
@@ -209,8 +209,8 @@ class TestGateMiddleware:
         middleware = CappedStickyGate(ok_response)
         request = make_request()
         # Sticky pass older than the absolute cap → must re-check.
-        request.session['_gate_test_sticky_cap_at'] = time.time() - 7200
-        request.session['_gate_test_sticky_cap_result'] = True
+        request.session["_gate_test_sticky_cap_at"] = time.time() - 7200
+        request.session["_gate_test_sticky_cap_result"] = True
 
         response = middleware(request)
         assert response.status_code == 200
@@ -220,7 +220,7 @@ class TestGateMiddleware:
         calls = []
 
         class CappedStickyGate(GateMiddleware):
-            gate_id = 'test_sticky_cap_hit'
+            gate_id = "test_sticky_cap_hit"
             recheck_after_pass = False
             sticky_pass_max_age = 3600
 
@@ -231,8 +231,8 @@ class TestGateMiddleware:
         middleware = CappedStickyGate(ok_response)
         request = make_request()
         # Sticky pass still within the cap → no re-check.
-        request.session['_gate_test_sticky_cap_hit_at'] = time.time() - 60
-        request.session['_gate_test_sticky_cap_hit_result'] = True
+        request.session["_gate_test_sticky_cap_hit_at"] = time.time() - 60
+        request.session["_gate_test_sticky_cap_hit_result"] = True
 
         response = middleware(request)
         assert response.status_code == 200
@@ -242,7 +242,7 @@ class TestGateMiddleware:
         calls = []
 
         class VersionedGate(GateMiddleware):
-            gate_id = 'test_versioned'
+            gate_id = "test_versioned"
             recheck_after_pass = False
 
             def check(self, request) -> bool:
@@ -250,24 +250,24 @@ class TestGateMiddleware:
                 return True
 
             def get_state_version(self, request):
-                return 'v2'
+                return "v2"
 
         middleware = VersionedGate(ok_response)
         request = make_request()
-        request.session['_gate_test_versioned_at'] = time.time()
-        request.session['_gate_test_versioned_result'] = True
-        request.session['_gate_test_versioned_version'] = 'v1'
+        request.session["_gate_test_versioned_at"] = time.time()
+        request.session["_gate_test_versioned_result"] = True
+        request.session["_gate_test_versioned_version"] = "v1"
 
         response = middleware(request)
         assert response.status_code == 200
         assert calls == [1]  # Re-checked despite cached pass
-        assert request.session['_gate_test_versioned_version'] == 'v2'
+        assert request.session["_gate_test_versioned_version"] == "v2"
 
     def test_version_match_uses_cache(self):
         calls = []
 
         class VersionedGate(GateMiddleware):
-            gate_id = 'test_versioned_hit'
+            gate_id = "test_versioned_hit"
             recheck_after_pass = False
 
             def check(self, request) -> bool:
@@ -275,13 +275,13 @@ class TestGateMiddleware:
                 return True
 
             def get_state_version(self, request):
-                return 'v1'
+                return "v1"
 
         middleware = VersionedGate(ok_response)
         request = make_request()
-        request.session['_gate_test_versioned_hit_at'] = time.time() - 9999
-        request.session['_gate_test_versioned_hit_result'] = True
-        request.session['_gate_test_versioned_hit_version'] = 'v1'
+        request.session["_gate_test_versioned_hit_at"] = time.time() - 9999
+        request.session["_gate_test_versioned_hit_result"] = True
+        request.session["_gate_test_versioned_hit_version"] = "v1"
 
         response = middleware(request)
         assert response.status_code == 200
@@ -289,13 +289,13 @@ class TestGateMiddleware:
 
     def test_invalidate_clears_version(self):
         request = make_request()
-        request.session['_gate_test_pass_version'] = 'v1'
+        request.session["_gate_test_pass_version"] = "v1"
         PassGate.invalidate(request)
-        assert '_gate_test_pass_version' not in request.session
+        assert "_gate_test_pass_version" not in request.session
 
     def test_not_implemented_check(self):
         class NoCheck(GateMiddleware):
-            gate_id = 'nocheck'
+            gate_id = "nocheck"
 
         middleware = NoCheck(ok_response)
         request = make_request()

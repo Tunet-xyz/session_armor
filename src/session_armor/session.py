@@ -51,7 +51,7 @@ from django.shortcuts import redirect
 
 from .utils import get_client_ip, is_authenticated, path_is_exempt
 
-logger = logging.getLogger('session_armor.session')
+logger = logging.getLogger("session_armor.session")
 
 
 class SessionSecurityMiddleware:
@@ -107,45 +107,48 @@ class SessionSecurityMiddleware:
         if violation:
             logger.warning(
                 "Session binding violation (%s) for user %s, path=%s",
-                violation, getattr(user, 'sub', '?'), request.path,
+                violation,
+                getattr(user, "sub", "?"),
+                request.path,
             )
             return self._terminate(request, reason=violation)
 
         # ── Absolute timeout ──
-        auth_time = request.session.get('_ss_auth_time')
-        timeout = getattr(settings, 'SESSION_ABSOLUTE_TIMEOUT', 28800)
+        auth_time = request.session.get("_ss_auth_time")
+        timeout = getattr(settings, "SESSION_ABSOLUTE_TIMEOUT", 28800)
         if auth_time and (now - auth_time) > timeout:
-            logger.info("Absolute timeout for user %s", getattr(user, 'sub', '?'))
-            self.on_timeout(request, 'absolute')
-            return self._terminate(request, reason='absolute_timeout')
+            logger.info("Absolute timeout for user %s", getattr(user, "sub", "?"))
+            self.on_timeout(request, "absolute")
+            return self._terminate(request, reason="absolute_timeout")
 
         # ── Idle timeout ──
-        last_active = request.session.get('_ss_last_active')
-        idle_timeout = getattr(settings, 'SESSION_IDLE_TIMEOUT', 1800)
+        last_active = request.session.get("_ss_last_active")
+        idle_timeout = getattr(settings, "SESSION_IDLE_TIMEOUT", 1800)
         if last_active and (now - last_active) > idle_timeout:
-            logger.info("Idle timeout for user %s", getattr(user, 'sub', '?'))
-            self.on_timeout(request, 'idle')
-            return self._terminate(request, reason='idle_timeout')
+            logger.info("Idle timeout for user %s", getattr(user, "sub", "?"))
+            self.on_timeout(request, "idle")
+            return self._terminate(request, reason="idle_timeout")
 
         # ── Claim drift ──
-        if getattr(settings, 'SESSION_DETECT_CLAIM_DRIFT', True):
+        if getattr(settings, "SESSION_DETECT_CLAIM_DRIFT", True):
             drift = self._check_claim_drift(request)
             if drift:
                 logger.warning(
                     "JWT claim drift for user %s: %s",
-                    getattr(user, 'sub', '?'), drift,
+                    getattr(user, "sub", "?"),
+                    drift,
                 )
-                return self._terminate(request, reason='claim_drift')
+                return self._terminate(request, reason="claim_drift")
 
         # ── Initialize on first authenticated request ──
-        if '_ss_auth_time' not in request.session:
+        if "_ss_auth_time" not in request.session:
             self._init_session(request, now)
             self.on_session_init(request)
 
         # ── Update last-active (throttled to limit session-store writes) ──
-        prev_active = request.session.get('_ss_last_active', 0)
+        prev_active = request.session.get("_ss_last_active", 0)
         if (now - prev_active) >= self.last_active_resolution:
-            request.session['_ss_last_active'] = now
+            request.session["_ss_last_active"] = now
 
         return self.get_response(request)
 
@@ -159,10 +162,10 @@ class SessionSecurityMiddleware:
         Each part is joined with ``|`` and SHA-256 hashed.
         """
         parts = []
-        if getattr(settings, 'SESSION_BIND_IP', True):
+        if getattr(settings, "SESSION_BIND_IP", True):
             parts.append(get_client_ip(request))
-        if getattr(settings, 'SESSION_BIND_USER_AGENT', True):
-            parts.append(request.META.get('HTTP_USER_AGENT', ''))
+        if getattr(settings, "SESSION_BIND_USER_AGENT", True):
+            parts.append(request.META.get("HTTP_USER_AGENT", ""))
         return parts
 
     def get_critical_claims(self, user) -> list[str]:
@@ -175,8 +178,8 @@ class SessionSecurityMiddleware:
         Default extracts ``sub`` and ``email`` (works for most OIDC setups).
         """
         return [
-            getattr(user, 'sub', '') or '',
-            getattr(user, 'email', '') or '',
+            getattr(user, "sub", "") or "",
+            getattr(user, "email", "") or "",
         ]
 
     def get_login_url(self, request) -> str:
@@ -186,7 +189,7 @@ class SessionSecurityMiddleware:
         Override to implement platform-specific or tenant-specific routing.
         Default uses Django's ``LOGIN_URL`` setting.
         """
-        return getattr(settings, 'LOGIN_URL', '/')
+        return getattr(settings, "LOGIN_URL", "/")
 
     def on_violation(self, request, reason: str):
         """
@@ -217,45 +220,45 @@ class SessionSecurityMiddleware:
     # ── INTERNALS ────────────────────────────────────────────────────────
 
     def _check_binding(self, request) -> str | None:
-        stored = request.session.get('_ss_fingerprint')
+        stored = request.session.get("_ss_fingerprint")
         if not stored:
             return None  # First request — will be initialized
 
         parts = self.get_fingerprint_parts(request)
-        current = hashlib.sha256('|'.join(parts).encode('utf-8')).hexdigest()
+        current = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
         if current != stored:
-            return 'fingerprint_mismatch'
+            return "fingerprint_mismatch"
         return None
 
     def _check_claim_drift(self, request) -> str | None:
-        stored = request.session.get('_ss_claims_hash')
+        stored = request.session.get("_ss_claims_hash")
         if not stored:
             return None
 
         current = self._hash_claims(request.user)
         if current != stored:
-            return 'critical_claims_changed'
+            return "critical_claims_changed"
         return None
 
     def _hash_claims(self, user) -> str:
         parts = self.get_critical_claims(user)
-        raw = '|'.join(str(p) for p in parts)
-        return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+        raw = "|".join(str(p) for p in parts)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def _init_session(self, request, now: float):
         # Rotate session ID to prevent fixation attacks (OWASP A7)
         request.session.cycle_key()
 
         parts = self.get_fingerprint_parts(request)
-        request.session['_ss_fingerprint'] = hashlib.sha256(
-            '|'.join(parts).encode('utf-8')
+        request.session["_ss_fingerprint"] = hashlib.sha256(
+            "|".join(parts).encode("utf-8")
         ).hexdigest()
-        request.session['_ss_auth_time'] = now
-        request.session['_ss_last_active'] = now
-        request.session['_ss_claims_hash'] = self._hash_claims(request.user)
+        request.session["_ss_auth_time"] = now
+        request.session["_ss_last_active"] = now
+        request.session["_ss_claims_hash"] = self._hash_claims(request.user)
         logger.debug(
             "Session security initialized for user %s",
-            getattr(request.user, 'sub', '?'),
+            getattr(request.user, "sub", "?"),
         )
 
     def _terminate(self, request, reason: str):

@@ -1,5 +1,5 @@
-from django.urls import path
 from django.http import HttpResponse
+from django.urls import path
 
 
 def ok_view(request):
@@ -7,5 +7,5 @@ def ok_view(request):
 
 
 urlpatterns = [
-    path('', ok_view),
+    path("", ok_view),
 ]

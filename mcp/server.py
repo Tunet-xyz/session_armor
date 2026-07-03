@@ -152,9 +152,7 @@ def get_prompt(contract: dict[str, Any], name: str, arguments: dict[str, Any]) -
                 text = text.replace("{" + key + "}", str(value))
             return {
                 "description": prompt.get("description", ""),
-                "messages": [
-                    {"role": "user", "content": {"type": "text", "text": text}}
-                ],
+                "messages": [{"role": "user", "content": {"type": "text", "text": text}}],
             }
     raise KeyError(name)
 
@@ -193,11 +191,15 @@ def handle(message: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any] 
         if method == "tools/list":
             return result(request_id, list_tools(contract))
         if method == "tools/call":
-            return result(request_id, call_tool(contract, params["name"], params.get("arguments") or {}))
+            return result(
+                request_id, call_tool(contract, params["name"], params.get("arguments") or {})
+            )
         if method == "prompts/list":
             return result(request_id, list_prompts(contract))
         if method == "prompts/get":
-            return result(request_id, get_prompt(contract, params["name"], params.get("arguments") or {}))
+            return result(
+                request_id, get_prompt(contract, params["name"], params.get("arguments") or {})
+            )
         return error(request_id, -32601, f"Method not found: {method}")
     except KeyError as exc:
         return error(request_id, -32602, f"Unknown or invalid parameter: {exc}")

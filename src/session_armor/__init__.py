@@ -21,9 +21,9 @@ from .gate import GateMiddleware
 from .session import SessionSecurityMiddleware
 
 __all__ = [
-    'GateMiddleware',
-    'SessionSecurityMiddleware',
-    'AuditMiddleware',
+    "GateMiddleware",
+    "SessionSecurityMiddleware",
+    "AuditMiddleware",
 ]
 
-__version__ = '0.1.0'
+__version__ = "0.1.0"

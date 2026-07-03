@@ -37,7 +37,7 @@ from django.conf import settings
 
 from .utils import is_authenticated, path_is_exempt
 
-logger = logging.getLogger('session_armor.gate')
+logger = logging.getLogger("session_armor.gate")
 
 
 class GateMiddleware:
@@ -82,8 +82,8 @@ class GateMiddleware:
     """
 
     # ── Configuration (override in subclass) ─────────────────────────────
-    gate_id: str = ''
-    cache_ttl_setting: str = ''
+    gate_id: str = ""
+    cache_ttl_setting: str = ""
     default_cache_ttl: int = 300
     exempt_paths: tuple[str, ...] = ()
     requires_auth: bool = True
@@ -118,10 +118,13 @@ class GateMiddleware:
         version = self.get_state_version(request)
 
         # ── Session-cache fast path ──
-        if f'{prefix}_result' in request.session and self._cache_valid(
-            request, now, ttl, version,
+        if f"{prefix}_result" in request.session and self._cache_valid(
+            request,
+            now,
+            ttl,
+            version,
         ):
-            passed = request.session[f'{prefix}_result']
+            passed = request.session[f"{prefix}_result"]
             if not passed:
                 return self.on_reject(request)
             self.on_pass(request)
@@ -137,15 +140,15 @@ class GateMiddleware:
         self.after_check(request, passed)
 
         # ── Cache the result ──
-        request.session[f'{prefix}_at'] = now
-        request.session[f'{prefix}_result'] = passed
+        request.session[f"{prefix}_at"] = now
+        request.session[f"{prefix}_result"] = passed
         if version is not None:
-            request.session[f'{prefix}_version'] = version
+            request.session[f"{prefix}_version"] = version
 
         if not passed:
             ctx = self.get_rejection_context(request)
             if ctx:
-                request.session[f'{prefix}_context'] = ctx
+                request.session[f"{prefix}_context"] = ctx
             return self.on_reject(request)
 
         self.on_pass(request)
@@ -164,9 +167,7 @@ class GateMiddleware:
         Return ``True`` to let the request through, ``False`` to reject it.
         **Must** be overridden in every subclass.
         """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement check()"
-        )
+        raise NotImplementedError(f"{self.__class__.__name__} must implement check()")
 
     def after_check(self, request, passed: bool) -> None:
         """Called after ``check()`` with the result. Logging, metrics, side effects."""
@@ -175,6 +176,7 @@ class GateMiddleware:
     def on_reject(self, request):
         """Called when the gate rejects. Return an ``HttpResponse``."""
         from django.http import HttpResponseForbidden
+
         return HttpResponseForbidden("Access denied")
 
     def on_pass(self, request) -> None:
@@ -188,7 +190,9 @@ class GateMiddleware:
         Return ``True`` to pass through (fail-open), ``False`` to reject.
         """
         logger.error(
-            "%s check error: %s", self.__class__.__name__, error,
+            "%s check error: %s",
+            self.__class__.__name__,
+            error,
             exc_info=True,
         )
         return self.fail_open
@@ -226,40 +230,40 @@ class GateMiddleware:
         Call this from views when the underlying condition changes
         (e.g. user just accepted terms, completed an onboarding step).
         """
-        prefix = f'_gate_{cls.gate_id or cls.__name__.lower()}'
-        for suffix in ('_at', '_result', '_context', '_version'):
-            request.session.pop(f'{prefix}{suffix}', None)
+        prefix = f"_gate_{cls.gate_id or cls.__name__.lower()}"
+        for suffix in ("_at", "_result", "_context", "_version"):
+            request.session.pop(f"{prefix}{suffix}", None)
 
     @classmethod
     def get_context(cls, request) -> dict:
         """Read the cached rejection context from the session."""
-        prefix = f'_gate_{cls.gate_id or cls.__name__.lower()}'
-        return request.session.get(f'{prefix}_context', {})
+        prefix = f"_gate_{cls.gate_id or cls.__name__.lower()}"
+        return request.session.get(f"{prefix}_context", {})
 
     # ── INTERNALS ────────────────────────────────────────────────────────
 
     @property
     def _cache_prefix(self) -> str:
-        return f'_gate_{self.gate_id}'
+        return f"_gate_{self.gate_id}"
 
     def _cache_valid(self, request, now: float, ttl: int, version) -> bool:
         """Decide whether the session-cached result can be reused."""
         prefix = self._cache_prefix
 
         # Version mismatch always invalidates (state changed behind the gate)
-        if version is not None and request.session.get(f'{prefix}_version') != version:
+        if version is not None and request.session.get(f"{prefix}_version") != version:
             return False
 
-        passed = request.session[f'{prefix}_result']
+        passed = request.session[f"{prefix}_result"]
         if passed and not self.recheck_after_pass:
             # Sticky pass: skip the TTL re-check, but still honor an optional
             # absolute lifetime cap so revocation can't be deferred forever.
             if self.sticky_pass_max_age is None:
                 return True
-            checked_at = request.session.get(f'{prefix}_at', 0)
+            checked_at = request.session.get(f"{prefix}_at", 0)
             return (now - checked_at) < self.sticky_pass_max_age
 
-        checked_at = request.session.get(f'{prefix}_at', 0)
+        checked_at = request.session.get(f"{prefix}_at", 0)
         return (now - checked_at) < ttl
 
     def _get_cache_ttl(self) -> int:
