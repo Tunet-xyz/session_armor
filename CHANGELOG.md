@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-15
+
 ### Security
 - **Audit IP pseudonymization is now non-reversible.** `AuditMiddleware` previously logged the client IP as an unsalted, truncated SHA-256, which is trivially reversible for the small IPv4 space — defeating the "privacy-preserving" guarantee. IPs are now hashed with a keyed HMAC-SHA256 (`hash_ip()`), peppered by the new `SESSION_ARMOR_AUDIT_PEPPER` setting (falls back to `SECRET_KEY`). Hash tokens stay deterministic for correlation but change value; back-compat with previously logged tokens is intentionally broken.
 - **`SESSION_ARMOR_TRUSTED_PROXY_DEPTH` now defaults to `1` instead of `0`.** The previous default trusted the leftmost, fully client-controlled `X-Forwarded-For` entry, allowing source-IP spoofing of fingerprint binding and audit logs when the setting was left unset (contradicting the documented default). Deployments with no reverse proxy that relied on the old leftmost behavior must set the value to `0` explicitly.
@@ -17,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`GateMiddleware.sticky_pass_max_age`** — optional absolute lifetime cap (seconds) for sticky passes (`recheck_after_pass=False`). Set it on authorization/entitlement gates so a revoked user can't retain access indefinitely; `None` (default) keeps the previous unbounded behavior.
 - **`SessionSecurityMiddleware.last_active_resolution`** — minimum seconds between `_ss_last_active` writes (default `0` = every request, unchanged). Raise it to reduce session-store write amplification on busy sessions.
 - **Security CI workflow** — `bandit` static analysis (blocking) and `pip-audit` dependency scanning (non-blocking, plus a weekly schedule) added under `.github/workflows/security.yaml`; both tools added to the `dev` extra.
+- **Packaged MCP contract** — added the `sessionarmor-mcp` stdio command and public agent contract for review-first middleware, audit, gate, and rollout guidance.
 
 ## [0.2.0] - 2026-06-12
 

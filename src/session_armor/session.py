@@ -1,5 +1,5 @@
 """
-SessionSecurityMiddleware — defense-grade session protection.
+SessionSecurityMiddleware — configurable session-integrity controls.
 
 Enforces:
 - Client fingerprint binding (IP + User-Agent hash)

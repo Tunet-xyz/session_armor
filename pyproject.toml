@@ -10,8 +10,8 @@ packages = ["src/session_armor"]
 
 [project]
 name = "SessionArmor"
-version = "0.2.0"
-description = "Defense-grade Django middleware: session security, audit logging, and configurable request gates with hooks."
+version = "0.3.0"
+description = "Security-focused Django middleware for session integrity, privacy-aware audit logging, and configurable request gates."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -51,6 +51,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/Tunet-xyz/session_armor"
+Product = "https://tunet.xyz/engineering/session-armor/"
 Documentation = "https://github.com/Tunet-xyz/session_armor#readme"
 Repository = "https://github.com/Tunet-xyz/session_armor"
 Issues = "https://github.com/Tunet-xyz/session_armor/issues"

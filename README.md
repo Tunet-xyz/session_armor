@@ -6,9 +6,9 @@
 [![Django 4.2+](https://img.shields.io/badge/django-4.2+-green.svg)](https://www.djangoproject.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Defense-grade Django middleware: session security, audit logging, and configurable request gates with hooks.**
+**Security-focused Django middleware for session integrity, privacy-aware audit logging, and configurable request gates.**
 
-Part of the [Tunet](https://github.com/Tunet-xyz) ecosystem — alongside [SwapLayer](https://github.com/Tunet-xyz/swap_layer) and [InfraGlyph](https://github.com/Tunet-xyz/infra_glyph).
+Part of the [Tunet](https://tunet.xyz/engineering/) ecosystem — alongside [SwapLayer](https://github.com/Tunet-xyz/swap_layer) and [InfraGlyph](https://github.com/Tunet-xyz/infra_glyph). See the [SessionArmor product page](https://tunet.xyz/engineering/session-armor/) for the public capability overview.
 
 ---
 
@@ -30,6 +30,8 @@ All three are **hookable** — override methods to customize behavior without to
 - [NIST SP 800-53 SC-23](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) (Session Authenticity)
 - [NIST SP 800-53 AU-3/AU-12](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) (Audit Content/Generation)
 - [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+
+SessionArmor adds controls around an existing Django authentication and session setup; it does not replace HTTPS, secure cookie settings, CSRF protection, authorization, MFA, or incident response. Fingerprint binding is a replay signal rather than proof of device identity and can require tuning for mobile or privacy-network traffic. See the [security model](docs/security-model.md) for deployment assumptions, limitations, and a release checklist.
 
 ---
 

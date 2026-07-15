@@ -1,5 +1,5 @@
 """
-SessionArmor — defense-grade Django middleware.
+SessionArmor — security-focused Django session middleware.
 
 Session security, audit logging, and configurable request gates with hooks.
 
@@ -26,4 +26,4 @@ __all__ = [
     "AuditMiddleware",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
