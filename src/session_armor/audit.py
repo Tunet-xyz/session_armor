@@ -1,72 +1,79 @@
-"""
-AuditMiddleware — security audit trail for Django requests.
+"""Structured, privacy-aware security audit middleware."""
 
-Logs every authenticated request with security-relevant context for
-forensic analysis, anomaly detection, and compliance reporting.
+from __future__ import annotations
 
-Every log entry captures **WHO** did **WHAT** from **WHERE**, enabling:
-- Post-incident forensics
-- Real-time anomaly detection (via log aggregation / SIEM)
-- Compliance reporting (NIST 800-53 AU-3, AU-12; SOC 2)
-
-Never logs request bodies, tokens, or credentials.
-
-Hooks (override in subclass)::
-
-    get_user_identity(request)              → dict
-    get_extra_fields(request, response)     → dict
-    before_log(request, response, entry)    → dict | None
-    get_log_level(status_code)              → int
-    format_entry(entry)                     → str
-
-Usage::
-
-    # Generic
-    MIDDLEWARE = [..., 'session_armor.audit.AuditMiddleware', ...]
-
-    # Customized (e.g. Auth0-aware)
-    class MyAudit(AuditMiddleware):
-        def get_user_identity(self, request):
-            return {
-                'uid': request.user.sub,
-                'tenant': request.user.organization_uuid,
-            }
-"""
-
+import json
 import logging
+import math
+import re
 import time
 import uuid
+from collections.abc import Mapping
+from enum import Enum
 
-from .utils import (
-    get_client_ip,
-    hash_ip,
-    is_authenticated,
-    path_is_exempt,
-    sanitize_for_log,
+from django.http.response import HttpResponseBase
+
+from .exceptions import AuditEmissionError, SessionConfigurationError
+from .utils import get_client_ip, hash_ip, is_authenticated, path_is_exempt, sanitize_for_log
+
+_FIELD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,127}\Z")
+_RESERVED = frozenset(
+    {"event", "rid", "method", "path", "status", "ip_hash", "ua", "duration_ms"}
 )
 
-logger = logging.getLogger("security.audit")
+
+class AuditErrorMode(str, Enum):
+    """Whether an audit-construction failure blocks the request."""
+
+    RAISE = "raise"
+    SUPPRESS = "suppress"
+
+
+def _safe_value(value: object, *, depth: int = 0) -> object:
+    if depth > 8:
+        raise AuditEmissionError("audit data exceeds the maximum nesting depth.")
+    if value is None or isinstance(value, bool | int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise AuditEmissionError("audit numbers must be finite.")
+        return value
+    if isinstance(value, str):
+        return sanitize_for_log(value, max_length=500)
+    if isinstance(value, Mapping):
+        if len(value) > 128:
+            raise AuditEmissionError("audit mappings contain too many fields.")
+        result: dict[str, object] = {}
+        for key, child in value.items():
+            if not isinstance(key, str) or _FIELD_RE.fullmatch(key) is None:
+                raise AuditEmissionError("audit field names must be bounded safe identifiers.")
+            result[key] = _safe_value(child, depth=depth + 1)
+        return result
+    if isinstance(value, list | tuple):
+        if len(value) > 256:
+            raise AuditEmissionError("audit collections contain too many values.")
+        return [_safe_value(child, depth=depth + 1) for child in value]
+    raise AuditEmissionError(f"unsupported audit value type: {type(value).__name__}")
 
 
 class AuditMiddleware:
-    """
-    Audit logging for authenticated requests.
+    """Emit one structured event for every authenticated request outcome."""
 
-    Captures:
-        Request ID, user identity, method, path, status, hashed IP,
-        truncated user-agent, and request duration.
-
-    Does NOT capture:
-        Request/response bodies, tokens, passwords, query parameters.
-    """
-
-    # ── Configuration ────────────────────────────────────────────────────
     logger_name: str = "security.audit"
     exempt_paths: tuple[str, ...] = ()
-
-    # ── Django middleware protocol ────────────────────────────────────────
+    allow_suppression: bool = False
+    error_mode: AuditErrorMode = AuditErrorMode.RAISE
 
     def __init__(self, get_response):
+        if not callable(get_response):
+            raise TypeError("get_response must be callable.")
+        if not isinstance(self.logger_name, str) or not self.logger_name:
+            raise SessionConfigurationError("logger_name must be a non-empty string.")
+        if not isinstance(self.allow_suppression, bool):
+            raise SessionConfigurationError("allow_suppression must be a boolean.")
+        if not isinstance(self.error_mode, AuditErrorMode):
+            raise SessionConfigurationError("error_mode must be an AuditErrorMode value.")
+        path_is_exempt("/", self.exempt_paths)
         self.get_response = get_response
         self._logger = logging.getLogger(self.logger_name)
 
@@ -74,50 +81,57 @@ class AuditMiddleware:
         if self._is_exempt(request):
             return self.get_response(request)
 
-        # Attach request ID for correlation
-        request_id = str(uuid.uuid4())[:8]
+        request_id = uuid.uuid4().hex
         request.META["X_REQUEST_ID"] = request_id
-        start = time.time()
+        start = time.perf_counter()
+        try:
+            response = self.get_response(request)
+        except Exception as original:
+            if is_authenticated(request):
+                try:
+                    self._emit(
+                        request,
+                        event="request.failed",
+                        request_id=request_id,
+                        duration_ms=round((time.perf_counter() - start) * 1000),
+                        status=500,
+                        response=None,
+                        error_type=type(original).__name__,
+                    )
+                except Exception:
+                    self._logger.critical("Security audit failed while recording an exception", exc_info=True)
+            raise
 
-        response = self.get_response(request)
-
-        duration_ms = round((time.time() - start) * 1000)
-
-        # Only audit authenticated requests
+        if not isinstance(response, HttpResponseBase):
+            raise TypeError("get_response must return an HttpResponse.")
+        response.headers.setdefault("X-Request-ID", request_id)
         if is_authenticated(request):
-            self._emit(request, response, request_id, duration_ms)
-
+            try:
+                self._emit(
+                    request,
+                    event="request.completed",
+                    request_id=request_id,
+                    duration_ms=round((time.perf_counter() - start) * 1000),
+                    status=response.status_code,
+                    response=response,
+                )
+            except Exception as error:
+                if self.error_mode is AuditErrorMode.RAISE:
+                    raise AuditEmissionError("required security audit emission failed.") from error
+                self._logger.critical("Security audit event suppressed after failure", exc_info=True)
         return response
 
-    # ── HOOKS (override in subclass) ─────────────────────────────────────
-
-    def get_user_identity(self, request) -> dict:
-        """
-        Extract user identity fields for the audit log entry.
-
-        Override to match your auth system's user model.
-        Default returns ``{'uid': user.pk}``.
-        """
+    def get_user_identity(self, request) -> Mapping[str, object]:
         user = request.user
-        return {
-            "uid": getattr(user, "sub", None) or str(getattr(user, "pk", "")),
-        }
+        return {"uid": getattr(user, "sub", None) or str(getattr(user, "pk", ""))}
 
-    def get_extra_fields(self, request, response) -> dict:
-        """Return additional fields to include in the audit entry."""
+    def get_extra_fields(self, request, response) -> Mapping[str, object]:
         return {}
 
-    def before_log(self, request, response, entry: dict) -> dict | None:
-        """
-        Called before the entry is logged.
-
-        Return the (optionally modified) entry, or ``None`` to suppress
-        logging for this request.
-        """
+    def before_log(self, request, response, entry: Mapping[str, object]):
         return entry
 
     def get_log_level(self, status_code: int) -> int:
-        """Return the ``logging`` level for a given response status code."""
         if status_code >= 500:
             return logging.ERROR
         if status_code in (401, 403):
@@ -126,51 +140,60 @@ class AuditMiddleware:
             return logging.INFO
         return logging.DEBUG
 
-    def format_entry(self, entry: dict) -> str:
-        """
-        Format the audit entry for the log message.
+    def format_entry(self, entry: Mapping[str, object]) -> str:
+        return json.dumps(entry, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
 
-        Override to produce structured JSON, CEF, or other formats.
-        """
-        return f"AUDIT {entry}"
+    def _emit(
+        self,
+        request,
+        *,
+        event: str,
+        request_id: str,
+        duration_ms: int,
+        status: int,
+        response,
+        error_type: str | None = None,
+    ) -> None:
+        identity = self.get_user_identity(request)
+        extra = self.get_extra_fields(request, response)
+        for label, fields in (("identity", identity), ("extra", extra)):
+            if not isinstance(fields, Mapping):
+                raise AuditEmissionError(f"{label} audit fields must be a mapping.")
+            conflict = _RESERVED & set(fields)
+            if conflict:
+                raise AuditEmissionError(f"custom audit fields override reserved fields: {sorted(conflict)}")
 
-    # ── INTERNALS ────────────────────────────────────────────────────────
-
-    def _emit(self, request, response, request_id: str, duration_ms: int):
-        ip = get_client_ip(request)
-
-        entry = {
+        entry: dict[str, object] = {
+            "event": event,
             "rid": request_id,
-            **self.get_user_identity(request),
-            "method": request.method,
-            "path": sanitize_for_log(request.path, max_length=500),
-            "status": response.status_code,
-            "ip_hash": hash_ip(ip, length=16),
-            "ua": sanitize_for_log(request.META.get("HTTP_USER_AGENT", ""), max_length=80),
-            "ms": duration_ms,
-            **self.get_extra_fields(request, response),
+            **identity,
+            "method": getattr(request, "method", ""),
+            "path": getattr(request, "path", ""),
+            "status": status,
+            "ip_hash": hash_ip(get_client_ip(request), length=32),
+            "ua": request.META.get("HTTP_USER_AGENT", ""),
+            "duration_ms": duration_ms,
+            **extra,
         }
-
-        entry = self.before_log(request, response, entry)
-        if entry is None:
+        if error_type is not None:
+            entry["error_type"] = error_type
+        safe_entry = _safe_value(entry)
+        if not isinstance(safe_entry, Mapping):  # pragma: no cover
+            raise AuditEmissionError("audit entry was not a mapping.")
+        prepared = self.before_log(request, response, safe_entry)
+        if prepared is None:
+            if not self.allow_suppression:
+                raise AuditEmissionError("before_log() suppressed a required audit event.")
             return
-
-        # Defense-in-depth: sanitize *every* string value, not just path/ua.
-        # Custom identity and extra fields (e.g. a JWT ``sub`` claim) are
-        # otherwise attacker-influenced and could forge log lines via embedded
-        # newlines/control characters.
-        entry = {
-            key: sanitize_for_log(value, max_length=500) if isinstance(value, str) else value
-            for key, value in entry.items()
-        }
-
-        level = self.get_log_level(response.status_code)
-        message = self.format_entry(entry)
-
-        if response.status_code in (401, 403):
-            self._logger.log(level, message.replace("AUDIT", "AUDIT_DENIED", 1))
-        else:
-            self._logger.log(level, message)
+        prepared = _safe_value(prepared)
+        if not isinstance(prepared, Mapping):
+            raise AuditEmissionError("before_log() must return a mapping or None.")
+        message = self.format_entry(prepared)
+        if not isinstance(message, str):
+            raise AuditEmissionError("format_entry() must return a string.")
+        message = sanitize_for_log(message, max_length=16_384)
+        prefix = "AUDIT_DENIED" if status in (401, 403) else "AUDIT"
+        self._logger.log(self.get_log_level(status), "%s %s", prefix, message)
 
     def _is_exempt(self, request) -> bool:
         return path_is_exempt(request.path, self.exempt_paths)

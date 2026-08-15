@@ -47,32 +47,32 @@ class TestHashValue:
 
 class TestHashIp:
     def test_deterministic(self, settings):
-        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper"
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-long-enough-for-tests"
         assert hash_ip("1.2.3.4") == hash_ip("1.2.3.4")
 
     def test_different_ips(self, settings):
-        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper"
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-long-enough-for-tests"
         assert hash_ip("1.2.3.4") != hash_ip("1.2.3.5")
 
     def test_default_length(self, settings):
-        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper"
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-long-enough-for-tests"
         assert len(hash_ip("1.2.3.4")) == 16
 
     def test_full_length(self, settings):
-        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper"
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-long-enough-for-tests"
         assert len(hash_ip("1.2.3.4", length=0)) == 64
 
     def test_pepper_changes_digest(self, settings):
-        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-a"
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-a-long-enough"
         a = hash_ip("1.2.3.4", length=0)
-        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-b"
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-b-long-enough"
         b = hash_ip("1.2.3.4", length=0)
         assert a != b
 
     def test_not_equal_to_unkeyed_hash(self, settings):
         # The whole point: keyed digest must differ from the reversible
         # unsalted SHA-256 an attacker would precompute.
-        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper"
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-long-enough-for-tests"
         assert hash_ip("1.2.3.4", length=0) != hash_value("1.2.3.4")
 
     def test_falls_back_to_secret_key(self, settings):
@@ -98,39 +98,41 @@ class TestGetClientIp:
                 "REMOTE_ADDR": "127.0.0.1",
             }
         )
-        # No depth = leftmost (legacy)
-        assert get_client_ip(req) == "10.0.0.1"
+        # No trusted proxy topology means forwarded headers are ignored.
+        assert get_client_ip(req) == "127.0.0.1"
 
     def test_xff_with_depth_1(self, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1
+        settings.SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ("127.0.0.0/8",)
         req = FakeRequest(
             {
-                "HTTP_X_FORWARDED_FOR": "spoofed, real, proxy1",
+                "HTTP_X_FORWARDED_FOR": "192.0.2.99, 198.51.100.8",
                 "REMOTE_ADDR": "127.0.0.1",
             }
         )
-        assert get_client_ip(req) == "real"
+        assert get_client_ip(req) == "198.51.100.8"
 
     def test_xff_with_depth_1_two_entries(self, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1
+        settings.SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ("127.0.0.0/8",)
         req = FakeRequest(
             {
-                "HTTP_X_FORWARDED_FOR": "real, proxy1",
+                "HTTP_X_FORWARDED_FOR": "198.51.100.8",
                 "REMOTE_ADDR": "127.0.0.1",
             }
         )
-        assert get_client_ip(req) == "real"
+        assert get_client_ip(req) == "198.51.100.8"
 
     def test_xff_too_short_for_depth(self, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1
+        settings.SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ("127.0.0.0/8",)
         req = FakeRequest(
             {
-                "HTTP_X_FORWARDED_FOR": "spoofed_only",
+                "HTTP_X_FORWARDED_FOR": "not-an-ip",
                 "REMOTE_ADDR": "127.0.0.1",
             }
         )
-        # Only 1 entry but depth=1 needs at least 2 → fallback
-        assert get_client_ip(req) == "127.0.0.1"
+        assert get_client_ip(req) == ""
 
     def test_no_xff_no_remote(self, settings):
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
@@ -138,9 +140,7 @@ class TestGetClientIp:
         assert get_client_ip(req) == ""
 
     def test_default_depth_is_secure(self, settings):
-        # With the setting absent, the default must NOT trust a fully
-        # client-controlled single-entry X-Forwarded-For; it falls back to
-        # REMOTE_ADDR (depth defaults to 1, not 0).
+        # The default ignores client-controlled forwarding headers.
         del settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH
         req = FakeRequest(
             {
@@ -184,7 +184,7 @@ class TestSanitizeForLog:
         assert sanitize_for_log("abc\x00def") == "abcdef"
 
     def test_strips_ansi_escapes(self):
-        assert sanitize_for_log("\x1b[31mred\x1b[0m") == "31mred0m"
+        assert sanitize_for_log("\x1b[31mred\x1b[0m") == "red"
 
     def test_truncation(self):
         long_string = "a" * 500

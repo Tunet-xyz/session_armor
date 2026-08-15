@@ -1,274 +1,342 @@
-"""
-SessionSecurityMiddleware — configurable session-integrity controls.
+"""Fail-closed Django session integrity and assurance middleware."""
 
-Enforces:
-- Client fingerprint binding (IP + User-Agent hash)
-- Absolute session timeout (force re-auth after N hours)
-- Idle session timeout (force re-auth after inactivity)
-- JWT claim drift detection (critical claims must not change mid-session)
-
-All behavior is customizable via hooks so different auth systems
-(Auth0, WorkOS, Django allauth, etc.) can plug in seamlessly.
-
-References:
-    NIST SP 800-53 AC-12 (Session Termination)
-    NIST SP 800-53 SC-23 (Session Authenticity)
-    OWASP Session Management Cheat Sheet
-
-Hooks (override in subclass)::
-
-    get_fingerprint_parts(request) → list[str]
-    get_critical_claims(user)      → list[str]
-    get_login_url(request)         → str
-    on_violation(request, reason)  → HttpResponse | None
-    on_timeout(request, kind)      → None
-    on_session_init(request)       → None
-
-Usage::
-
-    # Generic (works with any Django auth)
-    MIDDLEWARE = [
-        ...
-        'session_armor.session.SessionSecurityMiddleware',
-        ...
-    ]
-
-    # Customized
-    class MySessionSecurity(SessionSecurityMiddleware):
-        def get_critical_claims(self, user):
-            return [user.sub, user.tenant_id]
-
-        def get_login_url(self, request):
-            return reverse('my_login')
-"""
+from __future__ import annotations
 
 import hashlib
-import logging
+import hmac
+import math
+import secrets
 import time
+from collections.abc import Mapping, Sequence
 
 from django.conf import settings
+from django.http.response import HttpResponseBase
 from django.shortcuts import redirect
 
+from .assurance import AssuranceStatus, SessionAssurance
+from .exceptions import SessionConfigurationError
 from .utils import get_client_ip, is_authenticated, path_is_exempt
 
-logger = logging.getLogger("session_armor.session")
+_STATE_VERSION = 1
+_PREFIX = "_sa_"
+_STATE_KEYS = frozenset(
+    {
+        "_sa_version",
+        "_sa_nonce",
+        "_sa_started_at",
+        "_sa_seen_at",
+        "_sa_binding_mac",
+        "_sa_claims_mac",
+    }
+)
+
+
+def _seconds(name: str, default: int, *, allow_zero: bool = False) -> int:
+    value = getattr(settings, name, default)
+    minimum = 0 if allow_zero else 1
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= 31_536_000:
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise SessionConfigurationError(
+            f"{name} must be a {qualifier} integer no greater than one year."
+        )
+    return value
+
+
+def _boolean(name: str, default: bool) -> bool:
+    value = getattr(settings, name, default)
+    if not isinstance(value, bool):
+        raise SessionConfigurationError(f"{name} must be a boolean.")
+    return value
+
+
+def _key() -> bytes:
+    value = getattr(settings, "SESSION_ARMOR_STATE_KEY", "") or getattr(
+        settings, "SECRET_KEY", ""
+    )
+    try:
+        encoded = value.encode("utf-8") if isinstance(value, str) else bytes(value)
+    except (TypeError, ValueError) as error:
+        raise SessionConfigurationError(
+            "SESSION_ARMOR_STATE_KEY must be bytes or a string."
+        ) from error
+    if len(encoded) < 16:
+        raise SessionConfigurationError(
+            "SESSION_ARMOR_STATE_KEY (or SECRET_KEY) must contain at least 16 bytes."
+        )
+    return encoded
+
+
+def _frame(values: Sequence[str]) -> bytes:
+    if isinstance(values, str) or not isinstance(values, Sequence):
+        raise TypeError("security inputs must be a sequence of strings.")
+    if len(values) > 128:
+        raise ValueError("security inputs exceed the maximum item count.")
+    framed = bytearray(len(values).to_bytes(4, "big"))
+    for value in values:
+        if not isinstance(value, str):
+            raise TypeError("security inputs must contain only strings.")
+        encoded = value.encode("utf-8")
+        if len(encoded) > 16_384:
+            raise ValueError("a security input exceeds the maximum encoded length.")
+        framed.extend(len(encoded).to_bytes(4, "big"))
+        framed.extend(encoded)
+    return bytes(framed)
+
+
+def _mac(purpose: str, values: Sequence[str]) -> str:
+    derived = hmac.new(_key(), purpose.encode("ascii"), hashlib.sha256).digest()
+    return hmac.new(derived, _frame(values), hashlib.sha256).hexdigest()
+
+
+def _stored_timestamp(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        return None
+    return result
 
 
 class SessionSecurityMiddleware:
-    """
-    Session binding, timeouts, and anomaly detection.
+    """Continuously evaluate authenticated Django sessions and publish evidence."""
 
-    Must run **after** your authentication middleware (needs ``request.user``).
-
-    Settings (read from Django settings with secure defaults):
-
-        SESSION_ABSOLUTE_TIMEOUT    int — seconds (default 28800 / 8 h)
-        SESSION_IDLE_TIMEOUT        int — seconds (default 1800 / 30 min)
-        SESSION_BIND_IP             bool (default True)
-        SESSION_BIND_USER_AGENT     bool (default True)
-        SESSION_DETECT_CLAIM_DRIFT  bool (default True)
-
-    Session keys (all prefixed ``_ss_``):
-
-        _ss_fingerprint   Client fingerprint hash
-        _ss_auth_time     Absolute session start (epoch)
-        _ss_last_active   Last activity timestamp (epoch)
-        _ss_claims_hash   Hash of critical JWT claims
-    """
-
-    # ── Configuration ────────────────────────────────────────────────────
     exempt_paths: tuple[str, ...] = ()
-
-    # Minimum seconds between ``_ss_last_active`` writes. ``0`` (default)
-    # updates the timestamp on every request — preserving the original
-    # behavior. Raise it (e.g. to 60) to cut session-store write
-    # amplification on busy sessions; idle-timeout granularity then coarsens
-    # to roughly this value, which is harmless as long as it stays well
-    # below ``SESSION_IDLE_TIMEOUT``.
-    last_active_resolution: int = 0
-
-    # ── Django middleware protocol ────────────────────────────────────────
+    last_active_resolution: int | None = None
 
     def __init__(self, get_response):
+        if not callable(get_response):
+            raise TypeError("get_response must be callable.")
         self.get_response = get_response
 
     def __call__(self, request):
+        request.session_assurance = SessionAssurance.unverified("not_evaluated")
         if self._is_exempt(request):
+            request.session_assurance = SessionAssurance.unverified("exempt_path")
             return self.get_response(request)
-
         if not is_authenticated(request):
+            request.session_assurance = SessionAssurance.unverified("unauthenticated")
             return self.get_response(request)
-
-        now = time.time()
-        user = request.user
-
-        # ── Binding check ──
-        violation = self._check_binding(request)
-        if violation:
-            logger.warning(
-                "Session binding violation (%s) for user %s, path=%s",
-                violation,
-                getattr(user, "sub", "?"),
-                request.path,
+        if not hasattr(request, "session"):
+            raise SessionConfigurationError(
+                "SessionSecurityMiddleware must run after Django SessionMiddleware."
             )
-            return self._terminate(request, reason=violation)
 
-        # ── Absolute timeout ──
-        auth_time = request.session.get("_ss_auth_time")
-        timeout = getattr(settings, "SESSION_ABSOLUTE_TIMEOUT", 28800)
-        if auth_time and (now - auth_time) > timeout:
-            logger.info("Absolute timeout for user %s", getattr(user, "sub", "?"))
-            self.on_timeout(request, "absolute")
-            return self._terminate(request, reason="absolute_timeout")
-
-        # ── Idle timeout ──
-        last_active = request.session.get("_ss_last_active")
-        idle_timeout = getattr(settings, "SESSION_IDLE_TIMEOUT", 1800)
-        if last_active and (now - last_active) > idle_timeout:
-            logger.info("Idle timeout for user %s", getattr(user, "sub", "?"))
-            self.on_timeout(request, "idle")
-            return self._terminate(request, reason="idle_timeout")
-
-        # ── Claim drift ──
-        if getattr(settings, "SESSION_DETECT_CLAIM_DRIFT", True):
-            drift = self._check_claim_drift(request)
-            if drift:
-                logger.warning(
-                    "JWT claim drift for user %s: %s",
-                    getattr(user, "sub", "?"),
-                    drift,
+        try:
+            now = time.time()
+            absolute_timeout = _seconds("SESSION_ARMOR_ABSOLUTE_TIMEOUT", 28_800)
+            idle_timeout = _seconds("SESSION_ARMOR_IDLE_TIMEOUT", 1_800)
+            clock_skew = _seconds("SESSION_ARMOR_CLOCK_SKEW", 60, allow_zero=True)
+            resolution = (
+                _seconds("SESSION_ARMOR_LAST_ACTIVE_RESOLUTION", 0, allow_zero=True)
+                if self.last_active_resolution is None
+                else self.last_active_resolution
+            )
+            if isinstance(resolution, bool) or not isinstance(resolution, int) or resolution < 0:
+                raise SessionConfigurationError(
+                    "last_active_resolution must be a non-negative integer."
                 )
-                return self._terminate(request, reason="claim_drift")
+            if resolution >= idle_timeout:
+                raise SessionConfigurationError(
+                    "last-active resolution must be smaller than the idle timeout."
+                )
 
-        # ── Initialize on first authenticated request ──
-        if "_ss_auth_time" not in request.session:
-            self._init_session(request, now)
-            self.on_session_init(request)
+            if "_sa_version" not in request.session:
+                if any(str(key).startswith(_PREFIX) for key in request.session):
+                    return self._terminate(request, "partial_security_state")
+                self._init_session(request, now)
 
-        # ── Update last-active (throttled to limit session-store writes) ──
-        prev_active = request.session.get("_ss_last_active", 0)
-        if (now - prev_active) >= self.last_active_resolution:
-            request.session["_ss_last_active"] = now
+            violation = self._validate_state(
+                request,
+                now=now,
+                absolute_timeout=absolute_timeout,
+                idle_timeout=idle_timeout,
+                clock_skew=clock_skew,
+            )
+            if violation is not None:
+                if violation in {"absolute_timeout", "idle_timeout"}:
+                    self.on_timeout(request, violation.removesuffix("_timeout"))
+                return self._terminate(request, violation)
 
-        return self.get_response(request)
+            previous = float(request.session["_sa_seen_at"])
+            if now - previous >= resolution:
+                request.session["_sa_seen_at"] = now
+            request.session_assurance = self._assurance(request, now)
+            response = self.get_response(request)
+            if _boolean("SESSION_ARMOR_NO_STORE", True):
+                response.headers.setdefault("Cache-Control", "private, no-store")
+            return response
+        except SessionConfigurationError:
+            raise
+        except Exception:
+            return self._terminate(request, "session_evaluation_error")
 
-    # ── HOOKS (override in subclass) ─────────────────────────────────────
+    def get_fingerprint_factors(self, request) -> Mapping[str, str]:
+        """Return named continuity signals; override to add device or mTLS signals."""
 
-    def get_fingerprint_parts(self, request) -> list[str]:
-        """
-        Return the parts that make up the client fingerprint.
+        factors: dict[str, str] = {}
+        if _boolean("SESSION_ARMOR_BIND_IP", True):
+            factors["ip"] = get_client_ip(request)
+        if _boolean("SESSION_ARMOR_BIND_USER_AGENT", True):
+            factors["user_agent"] = request.META.get("HTTP_USER_AGENT", "")
+        return factors
 
-        Override to add custom binding factors (client certs, device ID, etc.).
-        Each part is joined with ``|`` and SHA-256 hashed.
-        """
-        parts = []
-        if getattr(settings, "SESSION_BIND_IP", True):
-            parts.append(get_client_ip(request))
-        if getattr(settings, "SESSION_BIND_USER_AGENT", True):
-            parts.append(request.META.get("HTTP_USER_AGENT", ""))
-        return parts
+    def get_critical_claims(self, user) -> Sequence[str]:
+        """Return identity claims that must remain stable for the session."""
 
-    def get_critical_claims(self, user) -> list[str]:
-        """
-        Return claim values that must not change mid-session.
+        return (
+            str(getattr(user, "sub", "") or ""),
+            str(getattr(user, "email", "") or ""),
+        )
 
-        Override to match your auth system's user model. The values are
-        hashed together; if the hash changes, the session is terminated.
-
-        Default extracts ``sub`` and ``email`` (works for most OIDC setups).
-        """
-        return [
-            getattr(user, "sub", "") or "",
-            getattr(user, "email", "") or "",
-        ]
+    def get_subject_identifier(self, user) -> str:
+        value = getattr(user, "sub", None)
+        if value is None:
+            value = getattr(user, "pk", None)
+        if value is None:
+            value = getattr(user, "id", None)
+        return "" if value is None else str(value)
 
     def get_login_url(self, request) -> str:
-        """
-        Return the URL to redirect to when a session is terminated.
-
-        Override to implement platform-specific or tenant-specific routing.
-        Default uses Django's ``LOGIN_URL`` setting.
-        """
         return getattr(settings, "LOGIN_URL", "/")
 
     def on_violation(self, request, reason: str):
-        """
-        Called on security violation, before session flush.
-
-        Return an ``HttpResponse`` to override the default redirect.
-        Return ``None`` to use the default behavior (flush → login redirect).
-        """
         return None
 
     def on_timeout(self, request, kind: str) -> None:
-        """
-        Called on absolute or idle timeout, before session flush.
-
-        ``kind`` is ``'absolute'`` or ``'idle'``.
-        Use for logging, metrics, or pre-flush cleanup.
-        """
-        pass
+        return None
 
     def on_session_init(self, request) -> None:
-        """
-        Called when session security metadata is initialized for a new session.
-
-        Use to set additional session values at auth time.
-        """
-        pass
-
-    # ── INTERNALS ────────────────────────────────────────────────────────
-
-    def _check_binding(self, request) -> str | None:
-        stored = request.session.get("_ss_fingerprint")
-        if not stored:
-            return None  # First request — will be initialized
-
-        parts = self.get_fingerprint_parts(request)
-        current = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
-        if current != stored:
-            return "fingerprint_mismatch"
         return None
 
-    def _check_claim_drift(self, request) -> str | None:
-        stored = request.session.get("_ss_claims_hash")
-        if not stored:
-            return None
+    def rebaseline_claims(self, request, user=None) -> None:
+        """Public API for a reviewed, legitimate server-side identity update."""
 
-        current = self._hash_claims(request.user)
-        if current != stored:
-            return "critical_claims_changed"
-        return None
+        if request.session.get("_sa_version") != _STATE_VERSION:
+            raise ValueError("SessionArmor state is not initialized.")
+        subject = request.user if user is None else user
+        request.session["_sa_claims_mac"] = self._claims_mac(subject)
 
-    def _hash_claims(self, user) -> str:
-        parts = self.get_critical_claims(user)
-        raw = "|".join(str(p) for p in parts)
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    def _factor_items(self, request) -> tuple[tuple[str, str], ...]:
+        factors = self.get_fingerprint_factors(request)
+        if not isinstance(factors, Mapping):
+            raise TypeError("get_fingerprint_factors() must return a mapping.")
+        if len(factors) > 32:
+            raise ValueError("too many fingerprint factors.")
+        items: list[tuple[str, str]] = []
+        for name, value in sorted(factors.items()):
+            if (
+                not isinstance(name, str)
+                or not name
+                or len(name) > 64
+                or not isinstance(value, str)
+                or not value
+            ):
+                raise ValueError("fingerprint factors require bounded names and non-empty values.")
+            items.append((name, value))
+        if not items and _boolean("SESSION_ARMOR_REQUIRE_BINDING", True):
+            raise SessionConfigurationError(
+                "At least one fingerprint factor is required by SESSION_ARMOR_REQUIRE_BINDING."
+            )
+        return tuple(items)
 
-    def _init_session(self, request, now: float):
-        # Rotate session ID to prevent fixation attacks (OWASP A7)
+    def _binding_mac(self, request) -> str:
+        flattened = tuple(part for pair in self._factor_items(request) for part in pair)
+        return _mac("session-armor:binding:v1", flattened)
+
+    def _claims_mac(self, user) -> str:
+        return _mac("session-armor:claims:v1", tuple(self.get_critical_claims(user)))
+
+    def _init_session(self, request, now: float) -> None:
         request.session.cycle_key()
+        for key in tuple(request.session):
+            if str(key).startswith("_ss_") or str(key).startswith(_PREFIX):
+                request.session.pop(key, None)
+        request.session.update(
+            {
+                "_sa_version": _STATE_VERSION,
+                "_sa_nonce": secrets.token_hex(32),
+                "_sa_started_at": now,
+                "_sa_seen_at": now,
+                "_sa_binding_mac": self._binding_mac(request),
+                "_sa_claims_mac": self._claims_mac(request.user),
+            }
+        )
+        self.on_session_init(request)
 
-        parts = self.get_fingerprint_parts(request)
-        request.session["_ss_fingerprint"] = hashlib.sha256(
-            "|".join(parts).encode("utf-8")
-        ).hexdigest()
-        request.session["_ss_auth_time"] = now
-        request.session["_ss_last_active"] = now
-        request.session["_ss_claims_hash"] = self._hash_claims(request.user)
-        logger.debug(
-            "Session security initialized for user %s",
-            getattr(request.user, "sub", "?"),
+    def _validate_state(
+        self,
+        request,
+        *,
+        now: float,
+        absolute_timeout: int,
+        idle_timeout: int,
+        clock_skew: int,
+    ) -> str | None:
+        if request.session.get("_sa_version") != _STATE_VERSION:
+            return "unsupported_security_state"
+        if not _STATE_KEYS <= set(request.session):
+            return "partial_security_state"
+        nonce = request.session.get("_sa_nonce")
+        if not isinstance(nonce, str) or len(nonce) != 64:
+            return "invalid_security_state"
+        started = _stored_timestamp(request.session.get("_sa_started_at"))
+        seen = _stored_timestamp(request.session.get("_sa_seen_at"))
+        if started is None or seen is None or seen < started:
+            return "invalid_security_state"
+        if started > now + clock_skew or seen > now + clock_skew:
+            return "future_security_state"
+        if now - started > absolute_timeout:
+            return "absolute_timeout"
+        if now - seen > idle_timeout:
+            return "idle_timeout"
+
+        stored_binding = request.session.get("_sa_binding_mac")
+        stored_claims = request.session.get("_sa_claims_mac")
+        if not isinstance(stored_binding, str) or not isinstance(stored_claims, str):
+            return "invalid_security_state"
+        if not hmac.compare_digest(self._binding_mac(request), stored_binding):
+            return "fingerprint_mismatch"
+        if _boolean("SESSION_ARMOR_DETECT_CLAIM_DRIFT", True) and not hmac.compare_digest(
+            self._claims_mac(request.user), stored_claims
+        ):
+            return "claim_drift"
+        return None
+
+    def _assurance(self, request, now: float) -> SessionAssurance:
+        subject = self.get_subject_identifier(request.user)
+        if not subject:
+            raise ValueError("an authenticated session requires a stable subject identifier.")
+        factors = tuple(name for name, _value in self._factor_items(request))
+        session_identifier = _mac(
+            "session-armor:identifier:v1", (request.session["_sa_nonce"], subject)
+        )
+        return SessionAssurance(
+            status=AssuranceStatus.TRUSTED,
+            reason="validated",
+            subject_identifier=subject,
+            session_identifier=session_identifier,
+            established_at=float(request.session["_sa_started_at"]),
+            verified_at=now,
+            last_activity_at=float(request.session["_sa_seen_at"]),
+            binding_factors=factors,
+            claims_bound=_boolean("SESSION_ARMOR_DETECT_CLAIM_DRIFT", True),
         )
 
     def _terminate(self, request, reason: str):
-        # Get login URL BEFORE flushing (user info may be needed)
-        custom = self.on_violation(request, reason)
-        login_url = self.get_login_url(request)
-
-        request.session.flush()
-
+        request.session_assurance = SessionAssurance(
+            status=AssuranceStatus.UNVERIFIED,
+            reason=reason,
+        )
+        custom = None
+        login_url = "/"
+        try:
+            custom = self.on_violation(request, reason)
+            login_url = self.get_login_url(request)
+        finally:
+            request.session.flush()
         if custom is not None:
+            if not isinstance(custom, HttpResponseBase):
+                raise TypeError("on_violation() must return an HttpResponse or None.")
             return custom
         return redirect(login_url)
 

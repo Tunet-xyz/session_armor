@@ -4,13 +4,18 @@ Shared utilities for SessionArmor middleware.
 
 import hashlib
 import hmac
+import ipaddress
 import re
+from collections.abc import Iterable
 
 from django.conf import settings
 
+from .exceptions import SessionConfigurationError
+
 # Characters that can corrupt structured log parsing (newlines, ANSI escapes,
 # null bytes, control characters).
-_LOG_UNSAFE_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x1b\[\]\r\n]")
+_LOG_UNSAFE_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\r\n]")
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def hash_value(value: str, length: int = 0) -> str:
@@ -36,7 +41,12 @@ def _audit_pepper() -> bytes:
     pepper = getattr(settings, "SESSION_ARMOR_AUDIT_PEPPER", "") or getattr(
         settings, "SECRET_KEY", ""
     )
-    return pepper.encode("utf-8") if isinstance(pepper, str) else bytes(pepper)
+    encoded = pepper.encode("utf-8") if isinstance(pepper, str) else bytes(pepper)
+    if len(encoded) < 16:
+        raise SessionConfigurationError(
+            "SESSION_ARMOR_AUDIT_PEPPER (or SECRET_KEY) must contain at least 16 bytes."
+        )
+    return encoded
 
 
 def hash_ip(ip: str, length: int = 16) -> str:
@@ -54,6 +64,29 @@ def hash_ip(ip: str, length: int = 16) -> str:
     """
     digest = hmac.new(_audit_pepper(), ip.encode("utf-8"), hashlib.sha256).hexdigest()
     return digest[:length] if length else digest
+
+
+def _proxy_networks(values: Iterable[str]) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    if isinstance(values, str):
+        raise SessionConfigurationError("SESSION_ARMOR_TRUSTED_PROXY_CIDRS must be an iterable.")
+    try:
+        networks = tuple(ipaddress.ip_network(value, strict=False) for value in values)
+    except (TypeError, ValueError) as error:
+        raise SessionConfigurationError(
+            "SESSION_ARMOR_TRUSTED_PROXY_CIDRS contains an invalid network."
+        ) from error
+    if any(network.prefixlen == 0 for network in networks):
+        raise SessionConfigurationError("A catch-all trusted proxy CIDR is not permitted.")
+    return networks
+
+
+def _ip(value: object) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return ipaddress.ip_address(value.strip())
+    except ValueError:
+        return None
 
 
 def get_client_ip(request) -> str:
@@ -85,24 +118,36 @@ def get_client_ip(request) -> str:
         X-Forwarded-For: spoofed_only
         → returns REMOTE_ADDR (not enough hops)
     """
-    depth = getattr(settings, "SESSION_ARMOR_TRUSTED_PROXY_DEPTH", 1)
+    depth = getattr(settings, "SESSION_ARMOR_TRUSTED_PROXY_DEPTH", 0)
+    if isinstance(depth, bool) or not isinstance(depth, int) or not 0 <= depth <= 16:
+        raise SessionConfigurationError(
+            "SESSION_ARMOR_TRUSTED_PROXY_DEPTH must be an integer between 0 and 16."
+        )
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    remote = _ip(request.META.get("REMOTE_ADDR", ""))
 
-    if not forwarded:
-        return request.META.get("REMOTE_ADDR", "")
+    # Secure default: with no trusted proxy topology configured, forwarded
+    # headers are ignored completely.
+    if depth == 0 or not forwarded:
+        return "" if remote is None else str(remote)
 
-    parts = [p.strip() for p in forwarded.split(",")]
+    networks = _proxy_networks(getattr(settings, "SESSION_ARMOR_TRUSTED_PROXY_CIDRS", ()))
+    if not networks:
+        raise SessionConfigurationError(
+            "Trusted proxy CIDRs are required when SESSION_ARMOR_TRUSTED_PROXY_DEPTH is non-zero."
+        )
+    chain = [_ip(part) for part in forwarded.split(",")]
+    if remote is None or any(part is None for part in chain):
+        return ""
+    addresses = [part for part in chain if part is not None] + [remote]
+    if len(addresses) <= depth:
+        return ""
 
-    if depth and depth > 0:
-        # The client is at index -(depth + 1) from the right.
-        # If the header is shorter than depth + 1, it's spoofed — use REMOTE_ADDR.
-        client_index = len(parts) - depth - 1
-        if client_index < 0:
-            return request.META.get("REMOTE_ADDR", "")
-        return parts[client_index]
+    trusted_hops = addresses[-depth:]
+    if any(not any(address in network for network in networks) for address in trusted_hops):
+        return ""
 
-    # depth == 0: explicit opt-in to legacy leftmost (client-controlled, unsafe).
-    return parts[0]
+    return str(addresses[-depth - 1])
 
 
 def get_client_fingerprint(request, parts: list[str] | None = None) -> str:
@@ -133,7 +178,12 @@ def sanitize_for_log(value: str, max_length: int = 200) -> str:
     Strips control characters, ANSI escape sequences, null bytes, and
     truncates to ``max_length`` to prevent log injection / log flooding.
     """
-    clean = _LOG_UNSAFE_RE.sub("", value)
+    if not isinstance(value, str):
+        raise TypeError("log values must be strings.")
+    if isinstance(max_length, bool) or not isinstance(max_length, int) or max_length < 0:
+        raise ValueError("max_length must be a non-negative integer.")
+    clean = _ANSI_ESCAPE_RE.sub("", value)
+    clean = _LOG_UNSAFE_RE.sub("", clean)
     return clean[:max_length]
 
 
@@ -149,7 +199,20 @@ def path_is_exempt(path: str, prefixes: tuple[str, ...]) -> bool:
     sibling paths like ``/health-internal`` that merely share a string
     prefix — a classic way to widen an exemption further than intended.
     """
+    if not isinstance(path, str) or not path.startswith("/"):
+        return False
+    if not isinstance(prefixes, tuple):
+        raise SessionConfigurationError("exempt_paths must be a tuple.")
     for prefix in prefixes:
+        if (
+            not isinstance(prefix, str)
+            or not prefix.startswith("/")
+            or "?" in prefix
+            or "#" in prefix
+        ):
+            raise SessionConfigurationError(
+                "Every exempt path must be an absolute URL path without a query or fragment."
+            )
         if path == prefix:
             return True
         boundary = prefix if prefix.endswith("/") else prefix + "/"

@@ -16,14 +16,31 @@ Three middleware classes, one base class:
         (compliance, onboarding, feature flags, maintenance, etc.).
 """
 
-from .audit import AuditMiddleware
-from .gate import GateMiddleware
+from .assurance import (
+    ASSURANCE_CONTEXT_KEY,
+    ASSURANCE_SCHEMA,
+    AssuranceStatus,
+    SessionAssurance,
+)
+from .audit import AuditErrorMode, AuditMiddleware
+from .exceptions import AuditEmissionError, SessionArmorError, SessionConfigurationError
+from .gate import GateDecision, GateMiddleware, GateOutcome
 from .session import SessionSecurityMiddleware
 
 __all__ = [
     "GateMiddleware",
+    "GateDecision",
+    "GateOutcome",
     "SessionSecurityMiddleware",
     "AuditMiddleware",
+    "AuditErrorMode",
+    "ASSURANCE_CONTEXT_KEY",
+    "ASSURANCE_SCHEMA",
+    "AssuranceStatus",
+    "SessionAssurance",
+    "SessionArmorError",
+    "SessionConfigurationError",
+    "AuditEmissionError",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
