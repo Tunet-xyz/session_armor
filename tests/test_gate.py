@@ -161,6 +161,10 @@ class TestGateMiddleware:
         gate(request)
         assert calls == [1, 1]
 
+        gate.version = None
+        gate(request)
+        assert calls == [1, 1, 1]
+
     def test_trusted_session_requirement_is_fail_closed(self):
         class Sensitive(PassGate):
             requires_trusted_session = True

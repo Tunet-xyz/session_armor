@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import math
 import secrets
 import time
@@ -18,6 +19,7 @@ from .exceptions import SessionConfigurationError
 from .utils import get_client_ip, is_authenticated, path_is_exempt
 
 _STATE_VERSION = 1
+logger = logging.getLogger("session_armor.session")
 _PREFIX = "_sa_"
 _STATE_KEYS = frozenset(
     {
@@ -27,6 +29,7 @@ _STATE_KEYS = frozenset(
         "_sa_seen_at",
         "_sa_binding_mac",
         "_sa_claims_mac",
+        "_sa_state_mac",
     }
 )
 
@@ -160,15 +163,20 @@ class SessionSecurityMiddleware:
             previous = float(request.session["_sa_seen_at"])
             if now - previous >= resolution:
                 request.session["_sa_seen_at"] = now
+                request.session["_sa_state_mac"] = self._state_mac(request)
             request.session_assurance = self._assurance(request, now)
-            response = self.get_response(request)
-            if _boolean("SESSION_ARMOR_NO_STORE", True):
-                response.headers.setdefault("Cache-Control", "private, no-store")
-            return response
+            enforce_no_store = _boolean("SESSION_ARMOR_NO_STORE", True)
         except SessionConfigurationError:
             raise
         except Exception:
             return self._terminate(request, "session_evaluation_error")
+
+        # Application exceptions retain their normal Django behavior. Only the
+        # security evaluation above is contained as a session violation.
+        response = self.get_response(request)
+        if enforce_no_store:
+            response.headers.setdefault("Cache-Control", "private, no-store")
+        return response
 
     def get_fingerprint_factors(self, request) -> Mapping[str, str]:
         """Return named continuity signals; override to add device or mTLS signals."""
@@ -215,6 +223,7 @@ class SessionSecurityMiddleware:
             raise ValueError("SessionArmor state is not initialized.")
         subject = request.user if user is None else user
         request.session["_sa_claims_mac"] = self._claims_mac(subject)
+        request.session["_sa_state_mac"] = self._state_mac(request, user=subject)
 
     def _factor_items(self, request) -> tuple[tuple[str, str], ...]:
         factors = self.get_fingerprint_factors(request)
@@ -244,7 +253,23 @@ class SessionSecurityMiddleware:
         return _mac("session-armor:binding:v1", flattened)
 
     def _claims_mac(self, user) -> str:
-        return _mac("session-armor:claims:v1", tuple(self.get_critical_claims(user)))
+        claims = self.get_critical_claims(user)
+        if isinstance(claims, str) or not isinstance(claims, Sequence):
+            raise TypeError("get_critical_claims() must return a sequence of strings.")
+        return _mac("session-armor:claims:v1", tuple(claims))
+
+    def _state_mac(self, request, *, user=None) -> str:
+        subject = request.user if user is None else user
+        values = (
+            str(request.session.get("_sa_version", "")),
+            str(request.session.get("_sa_nonce", "")),
+            format(float(request.session.get("_sa_started_at", 0)), ".17g"),
+            format(float(request.session.get("_sa_seen_at", 0)), ".17g"),
+            str(request.session.get("_sa_binding_mac", "")),
+            str(request.session.get("_sa_claims_mac", "")),
+            self.get_subject_identifier(subject),
+        )
+        return _mac("session-armor:state:v1", values)
 
     def _init_session(self, request, now: float) -> None:
         request.session.cycle_key()
@@ -261,6 +286,7 @@ class SessionSecurityMiddleware:
                 "_sa_claims_mac": self._claims_mac(request.user),
             }
         )
+        request.session["_sa_state_mac"] = self._state_mac(request)
         self.on_session_init(request)
 
     def _validate_state(
@@ -292,8 +318,15 @@ class SessionSecurityMiddleware:
 
         stored_binding = request.session.get("_sa_binding_mac")
         stored_claims = request.session.get("_sa_claims_mac")
-        if not isinstance(stored_binding, str) or not isinstance(stored_claims, str):
+        stored_state = request.session.get("_sa_state_mac")
+        if (
+            not isinstance(stored_binding, str)
+            or not isinstance(stored_claims, str)
+            or not isinstance(stored_state, str)
+        ):
             return "invalid_security_state"
+        if not hmac.compare_digest(self._state_mac(request), stored_state):
+            return "state_integrity_failure"
         if not hmac.compare_digest(self._binding_mac(request), stored_binding):
             return "fingerprint_mismatch"
         if _boolean("SESSION_ARMOR_DETECT_CLAIM_DRIFT", True) and not hmac.compare_digest(
@@ -331,13 +364,22 @@ class SessionSecurityMiddleware:
         login_url = "/"
         try:
             custom = self.on_violation(request, reason)
-            login_url = self.get_login_url(request)
-        finally:
+        except Exception:
+            logger.exception("SessionArmor violation hook failed")
+        try:
+            candidate = self.get_login_url(request)
+            if isinstance(candidate, str) and candidate:
+                login_url = candidate
+        except Exception:
+            logger.exception("SessionArmor login URL hook failed")
+        try:
             request.session.flush()
+        except Exception as error:
+            raise RuntimeError("SessionArmor could not invalidate the session.") from error
         if custom is not None:
-            if not isinstance(custom, HttpResponseBase):
-                raise TypeError("on_violation() must return an HttpResponse or None.")
-            return custom
+            if isinstance(custom, HttpResponseBase):
+                return custom
+            logger.error("SessionArmor ignored an invalid violation-hook response")
         return redirect(login_url)
 
     def _is_exempt(self, request) -> bool:

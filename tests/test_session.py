@@ -102,6 +102,15 @@ class TestSessionSecurityMiddleware:
         assert response.status_code == 302
         assert request.session == {"_flushed": True}
 
+    def test_valid_looking_timestamp_tampering_breaks_state_integrity(self):
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        request.session["_sa_started_at"] = 999.0
+        with patch("session_armor.session.time.time", return_value=1_001.0):
+            assert middleware(request).status_code == 302
+        assert request.session == {"_flushed": True}
+
     def test_partial_state_is_flushed(self):
         request = make_request(session=FakeSession({"_sa_version": 1}))
         response = SessionSecurityMiddleware(ok_response)(request)
@@ -166,6 +175,30 @@ class TestSessionSecurityMiddleware:
         assert response.status_code == 403
         assert request.session == {"_flushed": True}
 
+    def test_broken_violation_hook_still_flushes_and_redirects(self):
+        class Broken(SessionSecurityMiddleware):
+            def on_violation(self, request, reason):
+                raise RuntimeError("broken observer")
+
+        middleware = Broken(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        request.session["_sa_binding_mac"] = "0" * 64
+        assert middleware(request).status_code == 302
+        assert request.session == {"_flushed": True}
+
+    def test_application_exception_is_not_misclassified_as_session_violation(self):
+        def application_error(_request):
+            raise RuntimeError("view failed")
+
+        middleware = SessionSecurityMiddleware(application_error)
+        request = make_request()
+        with patch("session_armor.session.time.time", return_value=1_000.0):
+            with pytest.raises(RuntimeError, match="view failed"):
+                middleware(request)
+        assert request.session_assurance.trusted
+        assert "_flushed" not in request.session
+
     def test_invalid_security_configuration_raises_at_boundary(self, settings):
         settings.SESSION_ARMOR_IDLE_TIMEOUT = 0
         with pytest.raises(SessionConfigurationError):
@@ -173,4 +206,3 @@ class TestSessionSecurityMiddleware:
 
     def test_length_framing_prevents_delimiter_ambiguity(self):
         assert _mac("test", ("a|b", "c")) != _mac("test", ("a", "b|c"))
-

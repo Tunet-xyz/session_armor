@@ -62,6 +62,10 @@ def hash_ip(ip: str, length: int = 16) -> str:
     Truncated to ``length`` hex chars (default 16); pass ``length=0`` for
     the full digest.
     """
+    if not isinstance(ip, str):
+        raise TypeError("ip must be a string.")
+    if isinstance(length, bool) or not isinstance(length, int) or not 0 <= length <= 64:
+        raise ValueError("length must be an integer between 0 and 64.")
     digest = hmac.new(_audit_pepper(), ip.encode("utf-8"), hashlib.sha256).hexdigest()
     return digest[:length] if length else digest
 

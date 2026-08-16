@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-15
+
+### Security
+
+- Replaced ambiguous unkeyed fingerprint and claim digests with keyed,
+  domain-separated HMAC-SHA256 over a length-framed representation and
+  constant-time comparison.
+- Added strict validation for session state version, completeness, timestamps,
+  future clock values, security settings, proxy chains, factor inputs, and
+  extension-hook outputs. Invalid state is flushed and fails closed.
+- Forwarded headers are now ignored by default. Enabling them requires exact
+  trusted proxy CIDRs and a bounded hop count; catch-all CIDRs are rejected.
+- Gate results are typed `GateDecision` values, cache entries are bound to the
+  subject/session scope, malformed cache values are ignored, and unbounded
+  sticky approvals are never reused.
+- Audit records use full 128-bit request IDs, structured JSON, recursive value
+  validation, reserved-field protection, explicit suppression policy, and
+  exception-path events.
+
+### Added
+
+- Immutable `SessionAssurance` evidence on every request and a stable,
+  primitive-only authorization context contract for AccessGate.
+- Public `rebaseline_claims()` API for reviewed server-side identity changes.
+- AccessGate integration, threat model, secure-development, audit-scope, and
+  release documentation.
+
+### Changed
+
+- The runtime dependency is bounded to the tested Django 4.2 and 5.2 release
+  lines; unsupported future major versions cannot be selected silently.
+- Security settings are consistently namespaced under `SESSION_ARMOR_*`.
+- Gate hooks now consume and return `GateDecision`; error paths cannot opt into
+  pass-through.
+- Private `_ss_*` state is migrated to versioned `_sa_*` state on the next
+  authenticated request, rotating the Django session key.
+
 ## [0.3.0] - 2026-07-15
 
 ### Security

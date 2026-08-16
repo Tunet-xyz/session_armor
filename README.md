@@ -3,7 +3,7 @@
 [![Tests](https://github.com/Tunet-xyz/session_armor/actions/workflows/tests.yaml/badge.svg)](https://github.com/Tunet-xyz/session_armor/actions/workflows/tests.yaml)
 [![PyPI version](https://badge.fury.io/py/SessionArmor.svg)](https://pypi.org/project/SessionArmor/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Django 4.2+](https://img.shields.io/badge/django-4.2+-green.svg)](https://www.djangoproject.com/)
+[![Django 4.2-5.2](https://img.shields.io/badge/django-4.2--5.2-green.svg)](https://www.djangoproject.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Security-focused Django middleware for session integrity, privacy-aware audit logging, and configurable request gates.**
@@ -18,9 +18,9 @@ SessionArmor provides three drop-in Django middleware classes that harden your a
 
 | Middleware | Purpose |
 |-----------|---------|
-| `SessionSecurityMiddleware` | Fingerprint binding, absolute/idle timeouts, claim drift detection |
-| `AuditMiddleware` | Privacy-preserving security audit trail for every authenticated request |
-| `GateMiddleware` | Base class for building cacheable conditional gates (compliance, onboarding, feature flags) |
+| `SessionSecurityMiddleware` | Keyed continuity binding, validated absolute/idle timeouts, claim drift detection, and typed assurance evidence |
+| `AuditMiddleware` | Structured, privacy-aware security audit events for authenticated request outcomes |
+| `GateMiddleware` | Typed, identity-bound workflow gates with bounded, revocation-aware caching |
 
 All three are **hookable** — override methods to customize behavior without touching internals.
 
@@ -55,13 +55,21 @@ MIDDLEWARE = [
 ]
 
 # Optional settings (shown with defaults)
-SESSION_ABSOLUTE_TIMEOUT = 28800      # 8 hours
-SESSION_IDLE_TIMEOUT = 1800           # 30 minutes
-SESSION_BIND_IP = True
-SESSION_BIND_USER_AGENT = True
-SESSION_DETECT_CLAIM_DRIFT = True
-SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1  # Number of trusted reverse proxies (set 0 only if you have none)
-SESSION_ARMOR_AUDIT_PEPPER = SECRET_KEY  # Secret key for non-reversible audit IP hashing
+SESSION_ARMOR_ABSOLUTE_TIMEOUT = 28800
+SESSION_ARMOR_IDLE_TIMEOUT = 1800
+SESSION_ARMOR_BIND_IP = True
+SESSION_ARMOR_BIND_USER_AGENT = True
+SESSION_ARMOR_DETECT_CLAIM_DRIFT = True
+SESSION_ARMOR_REQUIRE_BINDING = True
+SESSION_ARMOR_CLOCK_SKEW = 60
+SESSION_ARMOR_LAST_ACTIVE_RESOLUTION = 0
+SESSION_ARMOR_NO_STORE = True
+SESSION_ARMOR_STATE_KEY = SECRET_KEY
+SESSION_ARMOR_AUDIT_PEPPER = SECRET_KEY
+
+# Forwarded headers are ignored unless both values are configured.
+SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
+SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ()
 ```
 
 > **Note on audit IP hashing.** Audit logs pseudonymize the client IP with a
@@ -70,28 +78,29 @@ SESSION_ARMOR_AUDIT_PEPPER = SECRET_KEY  # Secret key for non-reversible audit I
 > of `SECRET_KEY`, or to share it across services for cross-log correlation.
 > If unset, it falls back to `SECRET_KEY`.
 
-> **Note on proxy depth.** `SESSION_ARMOR_TRUSTED_PROXY_DEPTH` defaults to `1`.
-> It must match the number of reverse proxies you actually run in front of the
-> app, so that `X-Forwarded-For` can't be spoofed. Set it to `0` *only* if there
-> is no proxy (this trusts the client-supplied leftmost entry and is unsafe
-> behind a proxy).
+> **Note on proxy trust.** The secure default (`DEPTH = 0`) ignores
+> `X-Forwarded-For`. To use it, configure both the exact number of proxy hops
+> and their CIDR ranges. Each trusted hop is checked from the socket peer back
+> toward the client; malformed chains and catch-all trusted networks are rejected.
 
 ## Building a Gate
 
 ```python
-from session_armor import GateMiddleware
+from session_armor import GateDecision, GateMiddleware
 from django.shortcuts import redirect
 
 class ComplianceGate(GateMiddleware):
     gate_id = 'compliance'
     cache_ttl_setting = 'COMPLIANCE_CACHE_TTL'
     default_cache_ttl = 3600
-    fail_open = False  # Block access if check fails
+    requires_trusted_session = True
 
-    def check(self, request) -> bool:
-        return user_accepted_current_terms(request)
+    def check(self, request) -> GateDecision:
+        if user_accepted_current_terms(request):
+            return GateDecision.allow('current_terms_accepted')
+        return GateDecision.reject('terms_acceptance_required')
 
-    def on_reject(self, request):
+    def on_reject(self, request, decision):
         return redirect('/accept-terms/')
 ```
 
@@ -116,8 +125,12 @@ class ComplianceGate(GateMiddleware):
         # Bumped by admin tooling when a new document version is published
         return cache.get(f'compliance_version:{request.user.platform}', '')
 
-    def check(self, request) -> bool:
-        return user_accepted_current_terms(request)
+    def check(self, request) -> GateDecision:
+        return (
+            GateDecision.allow('current_terms_accepted')
+            if user_accepted_current_terms(request)
+            else GateDecision.reject('terms_acceptance_required')
+        )
 ```
 
 > **Sticky passes and revocation.** With `recheck_after_pass = False`, a pass
@@ -143,7 +156,32 @@ class MySessionSecurity(SessionSecurityMiddleware):
     def get_login_url(self, request):
         platform = getattr(request.user, 'platform', '')
         return f'/{platform}/login/' if platform else '/login/'
+
+# After a reviewed server-side claim update, use the public API rather than
+# writing SessionArmor's private session keys.
+MySessionSecurity(lambda request: request).rebaseline_claims(request)
 ```
+
+## AccessGate integration
+
+SessionArmor and AccessGate are complementary boundaries. SessionArmor decides
+whether the authenticated session is still trustworthy and attaches an immutable
+`request.session_assurance` record. AccessGate's Django adapter carries that
+record into authorization context, where `SessionAssurancePolicy` denies stale,
+missing, malformed, or subject-mismatched evidence before business policies may
+grant an action:
+
+```python
+from access_gate import AuthorizationEngine, RolePolicy, SessionAssurancePolicy
+
+engine = AuthorizationEngine([
+    SessionAssurancePolicy(actions={'records.read'}),
+    RolePolicy({'records_reader'}, actions={'records.read'}),
+])
+```
+
+The assurance policy is deny-only: a trusted session never grants a permission
+by itself. See [`docs/ACCESSGATE_INTEGRATION.md`](docs/ACCESSGATE_INTEGRATION.md).
 
 ## Customizing Audit Logging
 

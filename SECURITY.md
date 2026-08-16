@@ -4,7 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.3.x   | :white_check_mark: |
+| 0.4.x   | :white_check_mark: |
+| 0.3.x   | Security fixes only during migration |
 | < 0.3   | :x:                |
 
 ## Reporting a Vulnerability
@@ -37,6 +38,8 @@ The following are in scope:
 - Log injection via sanitization bypass
 - X-Forwarded-For spoofing past proxy depth controls
 - Any bypass of gate middleware security checks
+- Session-assurance confusion, subject mismatch, or stale-evidence acceptance
+- Malformed cached/session state that produces an authenticated pass-through
 
 ### Out of Scope
 

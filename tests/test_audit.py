@@ -66,6 +66,13 @@ class TestAuditMiddleware:
         with pytest.raises(AuditEmissionError):
             Collision(lambda _request: HttpResponse(status=403))(make_request())
 
+        class LateCollision(AuditMiddleware):
+            def before_log(self, request, response, entry):
+                return {**entry, "status": 200}
+
+        with pytest.raises(AuditEmissionError):
+            LateCollision(lambda _request: HttpResponse(status=403))(make_request())
+
     def test_nested_control_characters_are_sanitized(self, caplog):
         class Injection(AuditMiddleware):
             def get_user_identity(self, request):
@@ -98,4 +105,3 @@ class TestAuditMiddleware:
                 AuditMiddleware(explode)(make_request())
         assert '\"event\":\"request.failed\"' in caplog.records[0].message
         assert '\"error_type\":\"RuntimeError\"' in caplog.records[0].message
-

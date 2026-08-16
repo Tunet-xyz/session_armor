@@ -24,11 +24,15 @@ SessionArmor assumes the application already uses:
 ## Important limitations
 
 - A fingerprint is not device identity. A stolen cookie replayed from a sufficiently similar request context may not be detected.
-- IP binding can produce false positives on mobile networks, corporate egress pools, VPNs, and privacy relays. Override `get_fingerprint_parts()` or disable individual inputs when the deployment requires it.
+- IP binding can produce false positives on mobile networks, corporate egress pools, VPNs, and privacy relays. Override `get_fingerprint_factors()` or disable individual inputs when the deployment requires it.
 - Trusting the wrong `X-Forwarded-For` hop can make the fingerprint attacker-controlled. Set the proxy depth from the actual deployment topology, not from a generic example.
 - Audit pseudonymization reduces direct exposure but does not make logs anonymous. Deterministic tokens and custom fields can still be personal data.
 - `GateMiddleware` is not a replacement for object-level authorization. Revocable entitlements should use normal TTL rechecks, `get_state_version()`, explicit invalidation, or a bounded `sticky_pass_max_age`.
 - SessionArmor does not provide MFA, credential policy, malware protection, transport security, breach detection, or a compliance certification.
+- Audit emission occurs after a normal response is produced. If a view performs
+  an irreversible side effect before audit emission fails, the resulting 500
+  response cannot roll that side effect back; use transactional outbox/audit
+  patterns for operations that require atomic business and audit persistence.
 
 ## Operational defaults to review
 
@@ -38,7 +42,7 @@ SessionArmor assumes the application already uses:
 | Idle timeout | 30 minutes | Balance exposure against expected user workflows. |
 | IP binding | Enabled | Tune for mobile, VPN, and proxy behavior. |
 | User-Agent binding | Enabled | Treat as a weak continuity signal, not identity proof. |
-| Trusted proxy depth | 1 | Set to the exact number of trusted proxies; use 0 only with no proxy. |
+| Trusted proxy depth | 0 | Forwarded headers are ignored until both an exact depth and exact trusted CIDRs are configured. |
 | Audit pepper | `SECRET_KEY` fallback | Prefer a dedicated secret where rotation or cross-service correlation matters. |
 | Gate failure behavior | Closed | Override only after explicitly accepting the availability/security tradeoff. |
 

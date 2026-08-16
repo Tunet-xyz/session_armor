@@ -163,6 +163,9 @@ class AuditMiddleware:
             if conflict:
                 raise AuditEmissionError(f"custom audit fields override reserved fields: {sorted(conflict)}")
 
+        ip = get_client_ip(request)
+        if not ip:
+            raise AuditEmissionError("a validated client IP is required for audit correlation.")
         entry: dict[str, object] = {
             "event": event,
             "rid": request_id,
@@ -170,7 +173,7 @@ class AuditMiddleware:
             "method": getattr(request, "method", ""),
             "path": getattr(request, "path", ""),
             "status": status,
-            "ip_hash": hash_ip(get_client_ip(request), length=32),
+            "ip_hash": hash_ip(ip, length=32),
             "ua": request.META.get("HTTP_USER_AGENT", ""),
             "duration_ms": duration_ms,
             **extra,
@@ -188,6 +191,8 @@ class AuditMiddleware:
         prepared = _safe_value(prepared)
         if not isinstance(prepared, Mapping):
             raise AuditEmissionError("before_log() must return a mapping or None.")
+        if any(prepared.get(key) != safe_entry.get(key) for key in _RESERVED):
+            raise AuditEmissionError("before_log() altered reserved audit evidence.")
         message = self.format_entry(prepared)
         if not isinstance(message, str):
             raise AuditEmissionError("format_entry() must return a string.")

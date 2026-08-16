@@ -25,7 +25,8 @@ _GATE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 class GateOutcome(str, Enum):
     """Explicit gate outcome; arbitrary truthy values are never accepted."""
 
-    PASS = "pass"
+    # This is an authorization outcome label, not a credential.
+    PASS = "pass"  # nosec B105
     REJECT = "reject"
     SKIP = "skip"
 
@@ -262,6 +263,9 @@ class GateMiddleware:
         if outcome_value not in {GateOutcome.PASS.value, GateOutcome.REJECT.value}:
             return None
         if request.session.get(f"{prefix}_scope") != scope:
+            self.invalidate(request)
+            return None
+        if version is None and request.session.get(f"{prefix}_version") is not None:
             self.invalidate(request)
             return None
         if version is not None and request.session.get(f"{prefix}_version") != version:

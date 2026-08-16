@@ -1,17 +1,63 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 PROTOCOL_VERSION = "2025-06-18"
 CONTRACT_PATH = Path(__file__).with_name("agent-contract.json")
+MAX_MESSAGE_CHARS = 1_100_000
+MAX_JSON_NUMBER_CHARS = 256
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _reject_duplicate_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"Duplicate JSON object key: {key}")
+        value[key] = item
+    return value
+
+
+def _parse_json_integer(value: str) -> int:
+    if len(value) > MAX_JSON_NUMBER_CHARS:
+        raise ValueError("JSON integer exceeds the digit limit.")
+    return int(value)
+
+
+def _parse_json_float(value: str) -> float:
+    if len(value) > MAX_JSON_NUMBER_CHARS:
+        raise ValueError("JSON number exceeds the digit limit.")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("JSON numbers must be finite.")
+    return number
+
+
+def parse_message(document: str) -> object:
+    if not isinstance(document, str):
+        raise TypeError("MCP messages must be strings.")
+    if len(document) > MAX_MESSAGE_CHARS:
+        raise ValueError("MCP message exceeds the size limit.")
+    return json.loads(
+        document,
+        parse_constant=_reject_json_constant,
+        parse_float=_parse_json_float,
+        parse_int=_parse_json_integer,
+        object_pairs_hook=_reject_duplicate_json_object,
+    )
 
 
 def load_contract() -> dict[str, Any]:
     with CONTRACT_PATH.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+        return cast(dict[str, Any], json.load(handle))
 
 
 def compact_json(value: Any) -> str:
@@ -157,17 +203,30 @@ def get_prompt(contract: dict[str, Any], name: str, arguments: dict[str, Any]) -
     raise KeyError(name)
 
 
-def handle(message: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any] | None:
+def handle(message: object, contract: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(message, Mapping):
+        return error(None, -32600, "Invalid Request")
+    is_notification = "id" not in message
     request_id = message.get("id")
     method = message.get("method")
-    params = message.get("params") or {}
-
-    if request_id is None:
-        return None
+    if message.get("jsonrpc") != "2.0":
+        return None if is_notification else error(request_id, -32600, "Invalid Request")
+    if not is_notification and (
+        isinstance(request_id, bool) or not isinstance(request_id, str | int | type(None))
+    ):
+        return error(None, -32600, "Invalid Request")
+    if not isinstance(method, str) or not method:
+        return None if is_notification else error(request_id, -32600, "Invalid Request")
+    raw_params = message.get("params", {})
+    if raw_params is None:
+        raw_params = {}
+    if not isinstance(raw_params, Mapping):
+        return None if is_notification else error(request_id, -32602, "Invalid params")
+    params = cast(Mapping[str, Any], raw_params)
 
     try:
         if method == "initialize":
-            return result(
+            response = result(
                 request_id,
                 {
                     "protocolVersion": PROTOCOL_VERSION,
@@ -179,42 +238,63 @@ def handle(message: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any] 
                     "serverInfo": {
                         "name": contract["server"]["name"],
                         "title": contract["server"].get("title", contract["offering"]["name"]),
-                        "version": contract["server"].get("version", "0.1.0"),
+                        "version": contract["server"].get("version", "0.4.0"),
                     },
                     "instructions": contract.get("instructions", ""),
                 },
             )
-        if method == "resources/list":
-            return result(request_id, list_resources(contract))
-        if method == "resources/read":
-            return result(request_id, read_resource(contract, params["uri"]))
-        if method == "tools/list":
-            return result(request_id, list_tools(contract))
-        if method == "tools/call":
-            return result(
-                request_id, call_tool(contract, params["name"], params.get("arguments") or {})
-            )
-        if method == "prompts/list":
-            return result(request_id, list_prompts(contract))
-        if method == "prompts/get":
-            return result(
-                request_id, get_prompt(contract, params["name"], params.get("arguments") or {})
-            )
-        return error(request_id, -32601, f"Method not found: {method}")
-    except KeyError as exc:
-        return error(request_id, -32602, f"Unknown or invalid parameter: {exc}")
+        elif method == "resources/list":
+            response = result(request_id, list_resources(contract))
+        elif method == "resources/read":
+            uri = params["uri"]
+            if not isinstance(uri, str):
+                raise TypeError("uri must be a string")
+            response = result(request_id, read_resource(contract, uri))
+        elif method == "tools/list":
+            response = result(request_id, list_tools(contract))
+        elif method == "tools/call":
+            name = params["name"]
+            arguments = params.get("arguments", {})
+            if arguments is None:
+                arguments = {}
+            if not isinstance(name, str) or not isinstance(arguments, Mapping):
+                raise TypeError("tool name and arguments have invalid types")
+            response = result(request_id, call_tool(contract, name, dict(arguments)))
+        elif method == "prompts/list":
+            response = result(request_id, list_prompts(contract))
+        elif method == "prompts/get":
+            name = params["name"]
+            arguments = params.get("arguments", {})
+            if arguments is None:
+                arguments = {}
+            if not isinstance(name, str) or not isinstance(arguments, Mapping):
+                raise TypeError("prompt name and arguments have invalid types")
+            response = result(request_id, get_prompt(contract, name, dict(arguments)))
+        else:
+            response = error(request_id, -32601, f"Method not found: {method}")
+    except (KeyError, TypeError, ValueError) as exc:
+        response = error(request_id, -32602, f"Unknown or invalid parameter: {exc}")
     except Exception as exc:  # pragma: no cover - defensive protocol boundary
-        return error(request_id, -32603, "Internal error", {"detail": str(exc)})
+        response = error(request_id, -32603, "Internal error", {"detail": type(exc).__name__})
+    return None if is_notification else response
 
 
 def main() -> None:
     contract = load_contract()
-    for line in sys.stdin:
+    while True:
+        line = sys.stdin.readline(MAX_MESSAGE_CHARS + 1)
+        if not line:
+            break
+        if len(line) > MAX_MESSAGE_CHARS:
+            while line and not line.endswith("\n"):
+                line = sys.stdin.readline(MAX_MESSAGE_CHARS + 1)
+            write_message(error(None, -32700, "Message exceeds the size limit"))
+            continue
         if not line.strip():
             continue
         try:
-            message = json.loads(line)
-        except json.JSONDecodeError as exc:
+            message = parse_message(line)
+        except (json.JSONDecodeError, RecursionError, TypeError, ValueError) as exc:
             write_message(error(None, -32700, "Parse error", {"detail": str(exc)}))
             continue
         response = handle(message, contract)
