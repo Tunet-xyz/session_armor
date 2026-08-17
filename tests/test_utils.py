@@ -1,6 +1,6 @@
-"""Tests for session_armor.utils."""
+"""Tests for SessionArmor's Django adapter utilities."""
 
-from session_armor.utils import (
+from session_armor.adapters.django.utils import (
     get_client_ip,
     hash_ip,
     hash_value,

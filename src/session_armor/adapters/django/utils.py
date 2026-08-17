@@ -10,7 +10,7 @@ from collections.abc import Iterable
 
 from django.conf import settings
 
-from .exceptions import SessionConfigurationError
+from ...exceptions import SessionConfigurationError
 
 # Characters that can corrupt structured log parsing (newlines, ANSI escapes,
 # null bytes, control characters).

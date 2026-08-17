@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.test import RequestFactory
 
 from session_armor import AuditEmissionError
-from session_armor.audit import AuditMiddleware
+from session_armor.adapters.django import AuditMiddleware
 
 
 class FakeUser:

@@ -8,7 +8,8 @@ import pytest
 from django.http import HttpResponse
 from django.test import RequestFactory
 
-from session_armor import GateDecision, GateMiddleware
+from session_armor import GateDecision
+from session_armor.adapters.django import GateMiddleware
 
 
 class FakeUser:

@@ -13,7 +13,7 @@ def test_initialize_reports_release_version() -> None:
         {"jsonrpc": "2.0", "id": 1, "method": "initialize"}, load_contract()
     )
     assert response is not None
-    assert response["result"]["serverInfo"]["version"] == "0.4.0"
+    assert response["result"]["serverInfo"]["version"] == "0.5.0"
 
 
 @pytest.mark.parametrize(

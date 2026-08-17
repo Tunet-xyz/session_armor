@@ -11,8 +11,8 @@ session_armor = ["py.typed", "mcp/*.json"]
 
 [project]
 name = "SessionArmor"
-version = "0.4.0"
-description = "Security-focused Django middleware for session integrity, privacy-aware audit logging, and configurable request gates."
+version = "0.5.0"
+description = "Framework-neutral session-assurance contracts with optional security adapters."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -35,12 +35,12 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
   "Intended Audience :: Developers",
 ]
-dependencies = [
-  "Django>=4.2,<6",
-]
+dependencies = []
 
 [project.optional-dependencies]
+django = ["Django>=4.2,<6"]
 dev = [
+  "Django>=4.2,<6",
   "pytest>=8.0",
   "pytest-django>=4.5",
   "pytest-cov>=4.0.0",

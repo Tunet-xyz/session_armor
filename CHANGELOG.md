@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-16
+
+### Changed
+
+- Split the dependency-free assurance and gate-decision contracts from the
+  optional Django middleware adapter.
+- Moved Django middleware imports to `session_armor.adapters.django` and made
+  Django installable through the `SessionArmor[django]` extra.
+- Removed the old root and module-level middleware imports so framework
+  boundaries remain explicit.
+
+### Fixed
+
+- Use Django session mapping views when inspecting session keys, avoiding
+  `KeyError: 0` during real `SessionStore` initialization and validation.
+
 ## [0.4.0] - 2026-08-15
 
 ### Security

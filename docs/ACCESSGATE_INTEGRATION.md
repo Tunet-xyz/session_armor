@@ -3,6 +3,17 @@
 SessionArmor establishes session trust; AccessGate decides permissions. Neither
 product silently assumes the other's job.
 
+Install the optional adapters and import each framework integration explicitly:
+
+```bash
+pip install "SessionArmor[django]" "AccessGate[django]"
+```
+
+```python
+from session_armor.adapters.django import SessionSecurityMiddleware
+from access_gate.adapters.django import DjangoAuthorizer
+```
+
 1. Django session and authentication middleware establish `request.session` and
    `request.user`.
 2. `SessionSecurityMiddleware` validates continuity, time bounds, claim binding,

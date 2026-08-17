@@ -1,5 +1,42 @@
+import subprocess
+import sys
+from pathlib import Path
+
 import session_armor
+from session_armor import GateDecision, SessionAssurance
+from session_armor.adapters.django import (
+    AuditMiddleware,
+    GateMiddleware,
+    SessionSecurityMiddleware,
+)
 
 
 def test_package_version_matches_release():
-    assert session_armor.__version__ == "0.4.0"
+    assert session_armor.__version__ == "0.5.0"
+
+
+def test_public_api_separates_core_contracts_from_django_adapter():
+    assert GateDecision.__module__ == "session_armor.decisions"
+    assert SessionAssurance.__module__ == "session_armor.assurance"
+    assert AuditMiddleware.__module__ == "session_armor.adapters.django.audit"
+    assert GateMiddleware.__module__ == "session_armor.adapters.django.gate"
+    assert SessionSecurityMiddleware.__module__ == "session_armor.adapters.django.session"
+
+
+def test_core_import_does_not_require_django():
+    source = Path(__file__).resolve().parents[1] / "src"
+    script = f"""
+import builtins
+import sys
+sys.path.insert(0, {str(source)!r})
+original_import = builtins.__import__
+def guarded_import(name, *args, **kwargs):
+    if name == 'django' or name.startswith('django.'):
+        raise AssertionError('SessionArmor core imported Django')
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = guarded_import
+from session_armor import GateDecision, SessionAssurance
+assert GateDecision.allow().passed
+assert SessionAssurance.unverified('test').trusted is False
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)

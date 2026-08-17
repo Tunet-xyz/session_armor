@@ -6,7 +6,7 @@
 [![Django 4.2-5.2](https://img.shields.io/badge/django-4.2--5.2-green.svg)](https://www.djangoproject.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Security-focused Django middleware for session integrity, privacy-aware audit logging, and configurable request gates.**
+**Framework-neutral session-assurance contracts with an optional Django adapter for session integrity, privacy-aware audit logging, and configurable request gates.**
 
 Part of the [Tunet](https://tunet.xyz/engineering/) ecosystem — alongside [SwapLayer](https://github.com/Tunet-xyz/swap_layer) and [InfraGlyph](https://github.com/Tunet-xyz/infra_glyph). See the [SessionArmor product page](https://tunet.xyz/engineering/session-armor/) for the public capability overview.
 
@@ -14,7 +14,9 @@ Part of the [Tunet](https://tunet.xyz/engineering/) ecosystem — alongside [Swa
 
 ## What It Does
 
-SessionArmor provides three drop-in Django middleware classes that harden your application's session layer:
+The dependency-free core provides immutable assurance evidence and typed gate
+decisions. The optional Django adapter provides three drop-in middleware classes
+that harden an application's session layer:
 
 | Middleware | Purpose |
 |-----------|---------|
@@ -41,6 +43,13 @@ SessionArmor adds controls around an existing Django authentication and session 
 pip install SessionArmor
 ```
 
+The core install has no framework dependency. Install the Django adapter when
+middleware integration is required:
+
+```bash
+pip install "SessionArmor[django]"
+```
+
 ## Quick Start
 
 ```python
@@ -49,8 +58,8 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     # ... your auth middleware ...
-    'session_armor.session.SessionSecurityMiddleware',
-    'session_armor.audit.AuditMiddleware',
+    'session_armor.adapters.django.SessionSecurityMiddleware',
+    'session_armor.adapters.django.AuditMiddleware',
     # ... rest of your middleware ...
 ]
 
@@ -86,7 +95,8 @@ SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ()
 ## Building a Gate
 
 ```python
-from session_armor import GateDecision, GateMiddleware
+from session_armor import GateDecision
+from session_armor.adapters.django import GateMiddleware
 from django.shortcuts import redirect
 
 class ComplianceGate(GateMiddleware):
@@ -143,7 +153,7 @@ class ComplianceGate(GateMiddleware):
 ## Customizing Session Security
 
 ```python
-from session_armor import SessionSecurityMiddleware
+from session_armor.adapters.django import SessionSecurityMiddleware
 
 class MySessionSecurity(SessionSecurityMiddleware):
     exempt_paths = ('/health/', '/static/')
@@ -186,7 +196,7 @@ by itself. See [`docs/ACCESSGATE_INTEGRATION.md`](docs/ACCESSGATE_INTEGRATION.md
 ## Customizing Audit Logging
 
 ```python
-from session_armor import AuditMiddleware
+from session_armor.adapters.django import AuditMiddleware
 
 class MyAudit(AuditMiddleware):
     exempt_paths = ('/health/', '/static/', '/favicon.ico')

@@ -1,20 +1,4 @@
-"""
-SessionArmor — security-focused Django session middleware.
-
-Session security, audit logging, and configurable request gates with hooks.
-
-Three middleware classes, one base class:
-
-    SessionSecurityMiddleware
-        Fingerprint binding, absolute/idle timeouts, claim drift detection.
-
-    AuditMiddleware
-        Privacy-preserving audit trail for every authenticated request.
-
-    GateMiddleware
-        Base class for building cacheable, hookable conditional gates
-        (compliance, onboarding, feature flags, maintenance, etc.).
-"""
+"""SessionArmor's framework-neutral session-assurance contracts."""
 
 from .assurance import (
     ASSURANCE_CONTEXT_KEY,
@@ -22,25 +6,19 @@ from .assurance import (
     AssuranceStatus,
     SessionAssurance,
 )
-from .audit import AuditErrorMode, AuditMiddleware
+from .decisions import GateDecision, GateOutcome
 from .exceptions import AuditEmissionError, SessionArmorError, SessionConfigurationError
-from .gate import GateDecision, GateMiddleware, GateOutcome
-from .session import SessionSecurityMiddleware
 
 __all__ = [
-    "GateMiddleware",
-    "GateDecision",
-    "GateOutcome",
-    "SessionSecurityMiddleware",
-    "AuditMiddleware",
-    "AuditErrorMode",
     "ASSURANCE_CONTEXT_KEY",
     "ASSURANCE_SCHEMA",
     "AssuranceStatus",
-    "SessionAssurance",
-    "SessionArmorError",
-    "SessionConfigurationError",
     "AuditEmissionError",
+    "GateDecision",
+    "GateOutcome",
+    "SessionArmorError",
+    "SessionAssurance",
+    "SessionConfigurationError",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

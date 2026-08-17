@@ -6,13 +6,13 @@
     "packageName": "SessionArmor",
     "status": "production",
     "license": "MIT",
-    "purpose": "Defense-grade Django middleware for session security, privacy-preserving audit logging, and configurable request gates.",
-    "audiences": ["django-developer", "security-engineer", "customer-agent", "compliance-agent", "maintainer-agent"]
+    "purpose": "Framework-neutral session-assurance contracts with optional Django middleware for session security, privacy-preserving audit logging, and configurable request gates.",
+    "audiences": ["python-developer", "django-developer", "security-engineer", "customer-agent", "compliance-agent", "maintainer-agent"]
   },
   "server": {
     "name": "session-armor-public-contract-mcp",
     "title": "SessionArmor Public Agent Contract",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "transport": "stdio",
     "required": true,
     "hostedEndpoint": "https://github.com/Tunet-xyz/session_armor/tree/main/mcp"
@@ -21,7 +21,8 @@
   "publicAccess": {
     "mcpEndpoint": "public contract in repository mcp/; future hosted endpoint may expose the same resources",
     "pythonPackage": "pip install SessionArmor",
-    "pythonApi": ["SessionSecurityMiddleware", "AuditMiddleware", "GateMiddleware"],
+    "pythonApi": ["SessionAssurance", "GateDecision", "GateOutcome"],
+    "djangoAdapter": "pip install SessionArmor[django]; import middleware from session_armor.adapters.django",
     "cli": [],
     "docsUrl": "https://github.com/Tunet-xyz/session_armor#readme",
     "pypiUrl": "https://pypi.org/project/SessionArmor/",
@@ -41,7 +42,7 @@
       "title": "Offering Overview",
       "description": "What SessionArmor does and how agents should explain it.",
       "mimeType": "text/markdown",
-      "content": "# SessionArmor\n\nSessionArmor provides fail-closed Django session integrity, typed session-assurance evidence for AccessGate, structured audit events, and identity-bound request gates. It establishes session trust but never grants application permissions. Agents should not inspect or export production session data unless a user explicitly provides a safe, redacted sample."
+      "content": "# SessionArmor\n\nSessionArmor provides framework-neutral typed session-assurance evidence and gate decisions. Its optional Django adapter adds fail-closed session integrity, structured audit events, and identity-bound request gates. It establishes session trust but never grants application permissions. Agents should not inspect or export production session data unless a user explicitly provides a safe, redacted sample."
     },
     {
       "uri": "opensource://session_armor/public-apis",
@@ -50,7 +51,7 @@
       "description": "Package APIs, settings, and extension points available to agents.",
       "mimeType": "application/json",
       "data": {
-        "middleware": ["SessionSecurityMiddleware", "AuditMiddleware", "GateMiddleware"],
+        "middleware": ["session_armor.adapters.django.SessionSecurityMiddleware", "session_armor.adapters.django.AuditMiddleware", "session_armor.adapters.django.GateMiddleware"],
         "valueObjects": ["SessionAssurance", "GateDecision", "GateOutcome", "AuditErrorMode"],
         "settings": ["SESSION_ARMOR_ABSOLUTE_TIMEOUT", "SESSION_ARMOR_IDLE_TIMEOUT", "SESSION_ARMOR_BIND_IP", "SESSION_ARMOR_BIND_USER_AGENT", "SESSION_ARMOR_DETECT_CLAIM_DRIFT", "SESSION_ARMOR_REQUIRE_BINDING", "SESSION_ARMOR_CLOCK_SKEW", "SESSION_ARMOR_TRUSTED_PROXY_DEPTH", "SESSION_ARMOR_TRUSTED_PROXY_CIDRS", "SESSION_ARMOR_STATE_KEY", "SESSION_ARMOR_AUDIT_PEPPER"],
         "extensionPoints": ["exempt_paths", "get_fingerprint_factors(request)", "get_critical_claims(user)", "rebaseline_claims(request)", "get_login_url(request)", "get_user_identity(request)", "GateMiddleware.check(request) -> GateDecision", "GateMiddleware.on_reject(request, decision)", "GateMiddleware.get_state_version(request)"],

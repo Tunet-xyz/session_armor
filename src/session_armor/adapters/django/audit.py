@@ -13,7 +13,7 @@ from enum import Enum
 
 from django.http.response import HttpResponseBase
 
-from .exceptions import AuditEmissionError, SessionConfigurationError
+from ...exceptions import AuditEmissionError, SessionConfigurationError
 from .utils import get_client_ip, hash_ip, is_authenticated, path_is_exempt, sanitize_for_log
 
 _FIELD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,127}\Z")

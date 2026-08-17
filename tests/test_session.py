@@ -5,11 +5,13 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from django.contrib.sessions.backends.signed_cookies import SessionStore
 from django.http import HttpResponse, HttpResponseForbidden
 from django.test import RequestFactory
 
 from session_armor import AssuranceStatus, SessionConfigurationError
-from session_armor.session import SessionSecurityMiddleware, _mac
+from session_armor.adapters.django import SessionSecurityMiddleware
+from session_armor.adapters.django.session import _mac
 
 
 class FakeUser:
@@ -43,7 +45,7 @@ def make_request(path="/test/", *, session=None):
 
 
 def initialize(middleware, request, *, now=1_000.0):
-    with patch("session_armor.session.time.time", return_value=now):
+    with patch("session_armor.adapters.django.session.time.time", return_value=now):
         response = middleware(request)
     assert response.status_code == 200
     return response
@@ -77,6 +79,15 @@ class TestSessionSecurityMiddleware:
         assert request.session_assurance.binding_factors == ("ip", "user_agent")
         assert response.headers["Cache-Control"] == "private, no-store"
 
+    def test_initialization_supports_a_real_django_session_store(self):
+        request = make_request(session=SessionStore())
+
+        response = initialize(SessionSecurityMiddleware(ok_response), request)
+
+        assert response.status_code == 200
+        assert request.session["_sa_version"] == 1
+        assert request.session_assurance.trusted
+
     def test_legacy_state_is_replaced_without_becoming_trusted_input(self):
         request = make_request(session=FakeSession({"_ss_auth_time": 1, "_ss_fingerprint": "x"}))
         initialize(SessionSecurityMiddleware(ok_response), request)
@@ -97,7 +108,7 @@ class TestSessionSecurityMiddleware:
         request = make_request()
         initialize(middleware, request)
         request.session[field] = value
-        with patch("session_armor.session.time.time", return_value=1_001.0):
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_001.0):
             response = middleware(request)
         assert response.status_code == 302
         assert request.session == {"_flushed": True}
@@ -107,7 +118,7 @@ class TestSessionSecurityMiddleware:
         request = make_request()
         initialize(middleware, request)
         request.session["_sa_started_at"] = 999.0
-        with patch("session_armor.session.time.time", return_value=1_001.0):
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_001.0):
             assert middleware(request).status_code == 302
         assert request.session == {"_flushed": True}
 
@@ -123,20 +134,20 @@ class TestSessionSecurityMiddleware:
         initialize(middleware, request)
 
         settings.SESSION_ARMOR_ABSOLUTE_TIMEOUT = 100
-        with patch("session_armor.session.time.time", return_value=1_101.0):
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_101.0):
             assert middleware(request).status_code == 302
 
         request = make_request()
         initialize(middleware, request)
         settings.SESSION_ARMOR_IDLE_TIMEOUT = 60
         request.session["_sa_seen_at"] = 900.0
-        with patch("session_armor.session.time.time", return_value=1_000.0):
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_000.0):
             assert middleware(request).status_code == 302
 
         request = make_request()
         initialize(middleware, request)
         request.session["_sa_seen_at"] = 2_000.0
-        with patch("session_armor.session.time.time", return_value=1_000.0):
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_000.0):
             assert middleware(request).status_code == 302
 
     def test_fingerprint_and_claim_changes_terminate(self):
@@ -144,13 +155,13 @@ class TestSessionSecurityMiddleware:
         request = make_request()
         initialize(middleware, request)
         request.META["HTTP_USER_AGENT"] = "AttackerAgent"
-        with patch("session_armor.session.time.time", return_value=1_001.0):
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_001.0):
             assert middleware(request).status_code == 302
 
         request = make_request()
         initialize(middleware, request)
         request.user.email = "changed@example.com"
-        with patch("session_armor.session.time.time", return_value=1_001.0):
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_001.0):
             assert middleware(request).status_code == 302
 
     def test_public_rebaseline_api_accepts_reviewed_claim_change(self):
@@ -159,7 +170,7 @@ class TestSessionSecurityMiddleware:
         initialize(middleware, request)
         request.user.email = "reviewed@example.com"
         middleware.rebaseline_claims(request)
-        with patch("session_armor.session.time.time", return_value=1_001.0):
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_001.0):
             assert middleware(request).status_code == 200
 
     def test_custom_violation_response_never_prevents_flush(self):
@@ -193,7 +204,7 @@ class TestSessionSecurityMiddleware:
 
         middleware = SessionSecurityMiddleware(application_error)
         request = make_request()
-        with patch("session_armor.session.time.time", return_value=1_000.0):
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_000.0):
             with pytest.raises(RuntimeError, match="view failed"):
                 middleware(request)
         assert request.session_assurance.trusted

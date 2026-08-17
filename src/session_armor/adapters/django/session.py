@@ -14,8 +14,8 @@ from django.conf import settings
 from django.http.response import HttpResponseBase
 from django.shortcuts import redirect
 
-from .assurance import AssuranceStatus, SessionAssurance
-from .exceptions import SessionConfigurationError
+from ...assurance import AssuranceStatus, SessionAssurance
+from ...exceptions import SessionConfigurationError
 from .utils import get_client_ip, is_authenticated, path_is_exempt
 
 _STATE_VERSION = 1
@@ -144,7 +144,7 @@ class SessionSecurityMiddleware:
                 )
 
             if "_sa_version" not in request.session:
-                if any(str(key).startswith(_PREFIX) for key in request.session):
+                if any(str(key).startswith(_PREFIX) for key in request.session.keys()):
                     return self._terminate(request, "partial_security_state")
                 self._init_session(request, now)
 
@@ -273,7 +273,7 @@ class SessionSecurityMiddleware:
 
     def _init_session(self, request, now: float) -> None:
         request.session.cycle_key()
-        for key in tuple(request.session):
+        for key in tuple(request.session.keys()):
             if str(key).startswith("_ss_") or str(key).startswith(_PREFIX):
                 request.session.pop(key, None)
         request.session.update(
@@ -300,7 +300,7 @@ class SessionSecurityMiddleware:
     ) -> str | None:
         if request.session.get("_sa_version") != _STATE_VERSION:
             return "unsupported_security_state"
-        if not _STATE_KEYS <= set(request.session):
+        if not _STATE_KEYS <= set(request.session.keys()):
             return "partial_security_state"
         nonce = request.session.get("_sa_nonce")
         if not isinstance(nonce, str) or len(nonce) != 64:
