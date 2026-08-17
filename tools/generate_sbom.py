@@ -8,7 +8,7 @@ import json
 import os
 import shutil
 import subprocess  # nosec B404
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
@@ -89,7 +89,7 @@ def generate_sbom(root: Path, dist: Path) -> dict[str, object]:
         )
 
     epoch = int(os.environ.get("SOURCE_DATE_EPOCH", "0"))
-    created = datetime.fromtimestamp(epoch, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    created = datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
