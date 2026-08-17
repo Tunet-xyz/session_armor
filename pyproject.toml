@@ -38,17 +38,17 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-django = ["Django>=4.2,<6"]
+django = ["Django>=5.2.17,<6"]
 dev = [
-  "Django>=4.2,<6",
-  "pytest>=8.0",
-  "pytest-django>=4.5",
-  "pytest-cov>=4.0.0",
-  "ruff>=0.4",
-  "mypy>=1.0.0",
-  "django-stubs>=4.2.0",
-  "bandit>=1.7",
-  "pip-audit>=2.7",
+  "Django>=5.2.17,<6",
+  "pytest>=9.1.1",
+  "pytest-django>=4.14.0",
+  "pytest-cov>=7.1.0",
+  "ruff>=0.16.3",
+  "mypy>=2.3.0",
+  "django-stubs>=6.0.9",
+  "bandit>=1.9.4",
+  "pip-audit>=2.10.1",
 ]
 
 [project.urls]
