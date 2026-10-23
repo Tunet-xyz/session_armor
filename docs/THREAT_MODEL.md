@@ -35,7 +35,10 @@ corruption into an authenticated pass-through.
 ## Residual risk
 
 Fingerprint continuity is not device identity. An attacker with a valid cookie
-and matching observable factors can still replay it. IP binding can also reject
+and matching observable factors can still replay it. Unless the login view calls
+`establish()`, the first authenticated request after login binds the session,
+whichever client sends it; with a stateless backend such as signed cookies, the
+login cookie stays unbound until it expires. IP binding can also reject
 legitimate mobile/privacy-network changes. SessionArmor does not validate OIDC
 tokens, implement MFA, authorize objects, secure TLS/cookies, guarantee durable
 log delivery, or replace application incident response. AccessGate remains the

@@ -1,6 +1,9 @@
 import subprocess
 import sys
 from pathlib import Path
+from typing import get_type_hints
+
+from django.http.response import HttpResponseBase
 
 import session_armor
 from session_armor import GateDecision, SessionAssurance
@@ -13,6 +16,15 @@ from session_armor.adapters.django import (
 
 def test_package_version_matches_release():
     assert session_armor.__version__ == "0.5.0"
+
+
+def test_django_hooks_declare_their_response_contracts():
+    assert get_type_hints(GateMiddleware.on_reject)["return"] is HttpResponseBase
+    assert get_type_hints(SessionSecurityMiddleware.on_violation)["return"] == (
+        HttpResponseBase | None
+    )
+    for middleware in (AuditMiddleware, GateMiddleware, SessionSecurityMiddleware):
+        assert get_type_hints(middleware.__call__)["return"] is HttpResponseBase
 
 
 def test_public_api_separates_core_contracts_from_django_adapter():

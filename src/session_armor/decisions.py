@@ -19,6 +19,16 @@ class GateOutcome(str, Enum):
     SKIP = "skip"
 
 
+def _is_primitive(item: object) -> bool:
+    if item is None or isinstance(item, bool | int | float | str):
+        if isinstance(item, float) and not math.isfinite(item):
+            raise ValueError("gate context numbers must be finite.")
+        if isinstance(item, str) and len(item) > 2_048:
+            raise ValueError("gate context strings are too long.")
+        return True
+    return False
+
+
 def _freeze_context(value: Mapping[str, object]) -> Mapping[str, object]:
     if not isinstance(value, Mapping) or len(value) > 64:
         raise TypeError("gate context must be a mapping with at most 64 fields.")
@@ -26,14 +36,10 @@ def _freeze_context(value: Mapping[str, object]) -> Mapping[str, object]:
     for key, item in value.items():
         if not isinstance(key, str) or not key or len(key) > 128:
             raise TypeError("gate context keys must be bounded non-empty strings.")
-        if item is None or isinstance(item, bool | int | float | str):
-            if isinstance(item, float) and not math.isfinite(item):
-                raise ValueError("gate context numbers must be finite.")
-            if isinstance(item, str) and len(item) > 2_048:
-                raise ValueError("gate context strings are too long.")
+        if _is_primitive(item):
             frozen[key] = item
         elif isinstance(item, list | tuple) and len(item) <= 128 and all(
-            child is None or isinstance(child, bool | int | float | str) for child in item
+            _is_primitive(child) for child in item
         ):
             frozen[key] = tuple(item)
         else:

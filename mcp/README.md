@@ -20,6 +20,7 @@ python mcp/server.py
 Supported methods:
 
 - `initialize`
+- `ping`
 - `resources/list`
 - `resources/read`
 - `tools/list`

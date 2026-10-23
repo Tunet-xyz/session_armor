@@ -27,4 +27,4 @@ jobs:
       - name: Type check
         run: mypy src/session_armor --ignore-missing-imports
       - name: Test with branch coverage
-        run: pytest --cov=session_armor --cov-branch --cov-report=term-missing --cov-fail-under=80
+        run: pytest --cov=session_armor --cov-branch --cov-report=term-missing

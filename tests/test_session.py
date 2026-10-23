@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import logging
 from unittest.mock import patch
 
 import pytest
 from django.contrib.sessions.backends.signed_cookies import SessionStore
 from django.http import HttpResponse, HttpResponseForbidden
 from django.test import RequestFactory
+from django.utils.functional import lazystr
 
 from session_armor import AssuranceStatus, SessionConfigurationError
 from session_armor.adapters.django import SessionSecurityMiddleware
 from session_armor.adapters.django.session import _mac
+from session_armor.adapters.django.utils import hash_ip
 
 
 class FakeUser:
@@ -35,8 +40,8 @@ def ok_response(_request):
     return HttpResponse("OK")
 
 
-def make_request(path="/test/", *, session=None):
-    request = RequestFactory().get(path)
+def make_request(path="/test/", *, session=None, **extra):
+    request = RequestFactory().get(path, **extra)
     request.user = FakeUser()
     request.session = FakeSession() if session is None else session
     request.META["REMOTE_ADDR"] = "10.0.0.1"
@@ -64,6 +69,20 @@ class TestSessionSecurityMiddleware:
             exempt_paths = ("/health",)
 
         request = make_request("/health/live")
+        Exempt(ok_response)(request)
+        assert request.session_assurance.reason == "exempt_path"
+
+    def test_exempt_paths_match_the_routed_path_not_the_script_prefix(self):
+        class Exempt(SessionSecurityMiddleware):
+            exempt_paths = ("/static/",)
+
+        # A client-chosen SCRIPT_NAME must not exempt the view Django routes to.
+        request = make_request("/account/", SCRIPT_NAME="/static")
+        assert request.path == "/static/account/"
+        initialize(Exempt(ok_response), request)
+        assert request.session_assurance.trusted
+
+        request = make_request("/static/app.css", SCRIPT_NAME="/app")
         Exempt(ok_response)(request)
         assert request.session_assurance.reason == "exempt_path"
 
@@ -217,3 +236,398 @@ class TestSessionSecurityMiddleware:
 
     def test_length_framing_prevents_delimiter_ambiguity(self):
         assert _mac("test", ("a|b", "c")) != _mac("test", ("a", "b|c"))
+
+
+def call_at(middleware, request, now):
+    with patch("session_armor.adapters.django.session.time.time", return_value=now):
+        return middleware(request)
+
+
+class TestStateKeyRotation:
+    OLD = "retired-state-key-0123456789"
+    NEW = "current-state-key-0123456789"
+
+    def rotated_session(self, settings, **rotation):
+        settings.SESSION_ARMOR_STATE_KEY = self.OLD
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        settings.SESSION_ARMOR_STATE_KEY = self.NEW
+        for name, value in rotation.items():
+            setattr(settings, name, value)
+        return middleware, request
+
+    def test_rotation_without_fallbacks_still_fails_closed(self, settings):
+        middleware, request = self.rotated_session(settings)
+        assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert request.session_assurance.reason == "state_integrity_failure"
+
+    def test_fallback_key_verifies_and_state_is_resigned_with_the_current_key(self, settings):
+        middleware, request = self.rotated_session(
+            settings, SESSION_ARMOR_STATE_KEY_FALLBACKS=[self.OLD]
+        )
+        assert call_at(middleware, request, 1_001.0).status_code == 200
+        assert request.session_assurance.trusted
+
+        # The retired key is no longer needed, and no longer verifies anything.
+        settings.SESSION_ARMOR_STATE_KEY_FALLBACKS = []
+        assert call_at(middleware, request, 1_002.0).status_code == 200
+        settings.SESSION_ARMOR_STATE_KEY = self.OLD
+        assert call_at(middleware, request, 1_003.0).status_code == 302
+
+    def test_fallback_key_does_not_excuse_a_changed_fingerprint_or_tampering(self, settings):
+        middleware, request = self.rotated_session(
+            settings, SESSION_ARMOR_STATE_KEY_FALLBACKS=[self.OLD]
+        )
+        request.META["HTTP_USER_AGENT"] = "AttackerAgent"
+        assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert request.session_assurance.reason == "fingerprint_mismatch"
+
+        middleware, request = self.rotated_session(
+            settings, SESSION_ARMOR_STATE_KEY_FALLBACKS=[self.OLD]
+        )
+        request.session["_sa_started_at"] = 999.0
+        assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert request.session_assurance.reason == "state_integrity_failure"
+
+    def test_state_key_that_follows_secret_key_follows_secret_key_fallbacks(self, settings):
+        for state_key in ("", self.NEW):
+            settings.SECRET_KEY = self.OLD
+            settings.SESSION_ARMOR_STATE_KEY = state_key and self.OLD
+            middleware = SessionSecurityMiddleware(ok_response)
+            request = make_request()
+            initialize(middleware, request)
+            settings.SECRET_KEY = self.NEW
+            settings.SESSION_ARMOR_STATE_KEY = state_key
+            settings.SECRET_KEY_FALLBACKS = [self.OLD]
+            assert call_at(middleware, request, 1_001.0).status_code == 200
+
+    def test_dedicated_state_key_ignores_secret_key_fallbacks(self, settings):
+        middleware, request = self.rotated_session(settings, SECRET_KEY_FALLBACKS=[self.OLD])
+        assert call_at(middleware, request, 1_001.0).status_code == 302
+
+    @pytest.mark.parametrize("fallbacks", ["retired-state-key-0123456789", [64], ["short"]])
+    def test_invalid_explicit_fallbacks_are_a_configuration_error(self, settings, fallbacks):
+        middleware, request = self.rotated_session(
+            settings, SESSION_ARMOR_STATE_KEY_FALLBACKS=fallbacks
+        )
+        with pytest.raises(SessionConfigurationError):
+            call_at(middleware, request, 1_001.0)
+
+    @pytest.mark.parametrize("fallbacks", ["retired-state-key-0123456789", [64], ["short"]])
+    def test_invalid_explicit_fallbacks_fail_before_a_violation_can_be_retried(
+        self, settings, fallbacks
+    ):
+        settings.SESSION_ARMOR_STATE_KEY_FALLBACKS = fallbacks
+        with pytest.raises(SessionConfigurationError):
+            call_at(SessionSecurityMiddleware(ok_response), make_request(), 1_000.0)
+
+
+class TestStateKeyEncoding:
+    @pytest.mark.parametrize("value", [64, [65] * 20, 2**70])
+    def test_non_text_state_key_is_a_configuration_error(self, settings, value):
+        settings.SESSION_ARMOR_STATE_KEY = value
+        with pytest.raises(SessionConfigurationError):
+            call_at(SessionSecurityMiddleware(ok_response), make_request(), 1_000.0)
+
+
+def test_mac_matches_the_reference_construction_for_each_key(settings):
+    for key in ("first-state-key-0123456789", "second-state-key-0123456789"):
+        settings.SESSION_ARMOR_STATE_KEY = key
+        derived = hmac.new(key.encode(), b"test", hashlib.sha256).digest()
+        framed = b"\x00\x00\x00\x01\x00\x00\x00\x01a"
+        expected = hmac.new(derived, framed, hashlib.sha256).hexdigest()
+        assert _mac("test", ("a",)) == expected
+
+
+class TestEvaluationDiagnostics:
+    def test_contained_evaluation_error_is_logged_and_still_fails_closed(self, caplog):
+        reasons = []
+
+        class Broken(SessionSecurityMiddleware):
+            def get_critical_claims(self, user):
+                raise TypeError("unexpected claim shape")
+
+            def on_violation(self, request, reason):
+                reasons.append(reason)
+
+        request = make_request("/private/area/")
+        with caplog.at_level(logging.DEBUG, logger="session_armor.session"):
+            response = call_at(Broken(ok_response), request, 1_000.0)
+        assert response.status_code == 302
+        assert reasons == ["session_evaluation_error"]
+        records = [record for record in caplog.records if record.name == "session_armor.session"]
+        assert [(record.levelno, record.getMessage()) for record in records] == [
+            (logging.WARNING, "SessionArmor session evaluation failed")
+        ]
+        assert records[0].exc_info[0] is TypeError
+        assert "/private/area/" not in caplog.text
+
+    def test_failing_timeout_hook_keeps_the_timeout_reason(self):
+        reasons = []
+
+        class Observed(SessionSecurityMiddleware):
+            def on_timeout(self, request, kind):
+                raise RuntimeError("observer unavailable")
+
+            def on_violation(self, request, reason):
+                reasons.append(reason)
+
+        middleware = Observed(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        assert call_at(middleware, request, 2_801.0).status_code == 302
+        assert reasons == ["idle_timeout"]
+        assert request.session_assurance.reason == "idle_timeout"
+
+
+class TestSingleTermination:
+    def test_failed_termination_reports_the_violation_once(self):
+        reasons = []
+
+        class Observed(SessionSecurityMiddleware):
+            def on_violation(self, request, reason):
+                reasons.append(reason)
+
+        class UnflushableSession(FakeSession):
+            def flush(self):
+                raise ConnectionError("session store unavailable")
+
+        middleware = Observed(ok_response)
+        request = make_request(session=UnflushableSession())
+        initialize(middleware, request)
+        request.META["HTTP_USER_AGENT"] = "AttackerAgent"
+        with pytest.raises(RuntimeError, match="could not invalidate"):
+            call_at(middleware, request, 1_001.0)
+        assert reasons == ["fingerprint_mismatch"]
+        assert request.session_assurance.reason == "fingerprint_mismatch"
+
+
+class TestLoginUrl:
+    def test_lazy_login_url_is_honoured(self, settings):
+        settings.LOGIN_URL = lazystr("/accounts/sign-in/")
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        request.META["HTTP_USER_AGENT"] = "AttackerAgent"
+        response = call_at(middleware, request, 1_001.0)
+        assert response.status_code == 302
+        assert response["Location"] == "/accounts/sign-in/"
+
+
+class TestUserAgentBinding:
+    def test_client_without_user_agent_keeps_a_bound_session(self):
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request()
+        del request.META["HTTP_USER_AGENT"]
+        initialize(middleware, request)
+        assert request.session_assurance.binding_factors == ("ip", "user_agent")
+        request.META["HTTP_USER_AGENT"] = ""
+        assert call_at(middleware, request, 1_001.0).status_code == 200
+
+        request.META["HTTP_USER_AGENT"] = "TestAgent/1.0"
+        assert call_at(middleware, request, 1_002.0).status_code == 302
+        assert request.session_assurance.reason == "fingerprint_mismatch"
+
+    def test_user_agent_that_disappears_is_a_fingerprint_mismatch(self):
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        del request.META["HTTP_USER_AGENT"]
+        assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert request.session_assurance.reason == "fingerprint_mismatch"
+
+
+class TestEstablish:
+    def test_login_response_cookie_is_bound_to_the_login_client(self):
+        middleware = SessionSecurityMiddleware(ok_response)
+        login = make_request("/login/", session=SessionStore())
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_000.0):
+            middleware.establish(login)
+        login.session.save()
+        cookie = login.session.session_key
+
+        replay = make_request(session=SessionStore(session_key=cookie))
+        replay.META["REMOTE_ADDR"] = "203.0.113.9"
+        assert call_at(middleware, replay, 1_001.0).status_code == 302
+        assert replay.session_assurance.reason == "fingerprint_mismatch"
+
+        follow_up = make_request(session=SessionStore(session_key=cookie))
+        assert call_at(middleware, follow_up, 1_001.0).status_code == 200
+        assert follow_up.session_assurance.trusted
+        assert follow_up.session_assurance.established_at == 1_000.0
+
+    def test_establish_binds_the_given_user_and_replaces_stale_state(self):
+        class Anonymous:
+            is_authenticated = False
+
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request(session=FakeSession({"_sa_nonce": "stale", "_ss_old": 1}))
+        request.user = Anonymous()
+        with patch("session_armor.adapters.django.session.time.time", return_value=1_000.0):
+            middleware.establish(request, FakeUser())
+        assert request.session["_cycled"] is True
+        assert "_ss_old" not in request.session
+
+        request.user = FakeUser()
+        assert call_at(middleware, request, 1_001.0).status_code == 200
+        assert request.session_assurance.established_at == 1_000.0
+
+    def test_establish_requires_a_subject(self):
+        class NoSubject:
+            is_authenticated = True
+
+        request = make_request()
+        with pytest.raises(ValueError):
+            SessionSecurityMiddleware(ok_response).establish(request, NoSubject())
+        assert "_sa_version" not in request.session
+
+
+def test_evidence_from_state_written_ahead_never_postdates_its_verification():
+    # Another instance, 20 s ahead (inside SESSION_ARMOR_CLOCK_SKEW), wrote the state.
+    middleware = SessionSecurityMiddleware(ok_response)
+    request = make_request()
+    initialize(middleware, request, now=1_020.0)
+
+    request = make_request(session=request.session)
+    initialize(middleware, request, now=1_000.0)
+
+    evidence = request.session_assurance
+    assert evidence.trusted
+    assert evidence.established_at == evidence.last_activity_at == evidence.verified_at == 1_000.0
+    assert request.session["_sa_started_at"] == request.session["_sa_seen_at"] == 1_020.0
+
+
+def test_refresh_assurance_reverifies_and_reissues_trusted_evidence():
+    middleware = SessionSecurityMiddleware(ok_response)
+    request = make_request()
+    initialize(middleware, request)
+    before = request.session_assurance
+    stored = dict(request.session)
+
+    with patch("session_armor.adapters.django.session.time.time", return_value=1_040.0):
+        evidence = middleware.refresh_assurance(request)
+
+    assert evidence is request.session_assurance
+    assert evidence.trusted
+    assert evidence.reason == "reverified"
+    assert evidence.verified_at == 1_040.0
+    assert evidence.session_identifier == before.session_identifier
+    assert evidence.established_at == before.established_at
+    assert request.session == stored
+
+
+def test_refresh_assurance_withdraws_trust_without_touching_the_session():
+    middleware = SessionSecurityMiddleware(ok_response)
+    request = make_request()
+    initialize(middleware, request)
+    stored = dict(request.session)
+
+    request.META["HTTP_USER_AGENT"] = "AttackerAgent"
+    with patch("session_armor.adapters.django.session.time.time", return_value=1_001.0):
+        evidence = middleware.refresh_assurance(request)
+    assert evidence.status is AssuranceStatus.UNVERIFIED
+    assert evidence.reason == "fingerprint_mismatch"
+
+    request.META["HTTP_USER_AGENT"] = "TestAgent/1.0"
+    assert middleware.refresh_assurance(request) is None
+    assert request.session_assurance is evidence
+    assert request.session == stored
+
+
+def test_refresh_assurance_logs_a_contained_error(caplog):
+    class Flaky(SessionSecurityMiddleware):
+        broken = False
+
+        def get_fingerprint_factors(self, request):
+            if self.broken:
+                raise ConnectionError("device signal unavailable")
+            return super().get_fingerprint_factors(request)
+
+    middleware = Flaky(ok_response)
+    request = make_request("/private/area/")
+    initialize(middleware, request)
+    stored = dict(request.session)
+    middleware.broken = True
+    with caplog.at_level(logging.DEBUG, logger="session_armor.session"):
+        evidence = call_at(middleware.refresh_assurance, request, 1_001.0)
+    assert evidence.status is AssuranceStatus.UNVERIFIED
+    assert evidence.reason == "session_evaluation_error"
+    assert request.session == stored
+    records = [record for record in caplog.records if record.name == "session_armor.session"]
+    assert [(record.levelno, record.getMessage()) for record in records] == [
+        (logging.WARNING, "SessionArmor session re-verification failed")
+    ]
+    assert records[0].exc_info[0] is ConnectionError
+    assert "/private/area/" not in caplog.text
+
+
+def test_refresh_assurance_never_grants_trust_or_moves_it_to_another_user():
+    class Exempt(SessionSecurityMiddleware):
+        exempt_paths = ("/health",)
+
+    middleware = Exempt(ok_response)
+    request = make_request()
+    initialize(middleware, request)
+    exempt = make_request("/health/live", session=request.session)
+    middleware(exempt)
+    assert middleware.refresh_assurance(exempt) is None
+    assert exempt.session_assurance.reason == "exempt_path"
+
+    with patch("session_armor.adapters.django.session.time.time", return_value=1_001.0):
+        evidence = middleware.refresh_assurance(request, FakeUser(sub="someone-else"))
+    assert evidence.status is AssuranceStatus.UNVERIFIED
+
+
+def test_rebaseline_reissues_evidence_from_library_settings_only_on_request(settings):
+    middleware = SessionSecurityMiddleware(ok_response)
+    request = make_request()
+    initialize(middleware, request)
+    before = request.session_assurance
+
+    request.user.email = "reviewed@example.com"
+    middleware.rebaseline_claims(request, request.user)
+    assert request.session_assurance is before
+
+    with patch("session_armor.adapters.django.session.time.time", return_value=1_040.0):
+        middleware.rebaseline_claims(request, request.user, refresh_assurance=True)
+    evidence = request.session_assurance
+    assert evidence.trusted
+    assert evidence.reason == "claims_rebaselined"
+    assert evidence.verified_at == 1_040.0
+    assert evidence.session_identifier == before.session_identifier
+    assert evidence.claims_bound is True
+
+    settings.SESSION_ARMOR_DETECT_CLAIM_DRIFT = False
+    with patch("session_armor.adapters.django.session.time.time", return_value=1_041.0):
+        middleware.rebaseline_claims(request, refresh_assurance=True)
+    assert request.session_assurance.trusted
+    assert request.session_assurance.claims_bound is False
+
+    with patch("session_armor.adapters.django.session.time.time", return_value=1_042.0):
+        middleware.rebaseline_claims(request, FakeUser(sub="someone-else"), refresh_assurance=True)
+    assert request.session_assurance.status is AssuranceStatus.UNVERIFIED
+    assert request.session_assurance.reason == "subject_changed"
+
+
+def test_state_presence_and_discard_are_public():
+    request = make_request(session=FakeSession({"app": "kept", "_ss_auth_time": 1}))
+    assert not SessionSecurityMiddleware.has_state(request.session)
+    initialize(SessionSecurityMiddleware(ok_response), request)
+    assert SessionSecurityMiddleware.has_state(request.session)
+
+    request.session["_ss_legacy"] = "x"
+    SessionSecurityMiddleware.discard_state(request.session)
+    assert not SessionSecurityMiddleware.has_state(request.session)
+    assert not any(key.startswith(("_sa_", "_ss_")) for key in request.session)
+    assert request.session["app"] == "kept"
+
+
+def test_binding_digests_are_keyed_per_factor_and_correlate_with_the_audit_hash():
+    request = make_request()
+    digests = SessionSecurityMiddleware(ok_response).binding_digests(request)
+    assert digests == {
+        "ip": hash_ip("10.0.0.1", length=12),
+        "user_agent": hash_ip("TestAgent/1.0", length=12),
+    }
+    assert hash_ip("10.0.0.1", length=32).startswith(digests["ip"])

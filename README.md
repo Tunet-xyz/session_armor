@@ -74,6 +74,7 @@ SESSION_ARMOR_CLOCK_SKEW = 60
 SESSION_ARMOR_LAST_ACTIVE_RESOLUTION = 0
 SESSION_ARMOR_NO_STORE = True
 SESSION_ARMOR_STATE_KEY = SECRET_KEY
+SESSION_ARMOR_STATE_KEY_FALLBACKS = None  # None: follow SECRET_KEY_FALLBACKS
 SESSION_ARMOR_AUDIT_PEPPER = SECRET_KEY
 
 # Forwarded headers are ignored unless both values are configured.
@@ -87,10 +88,20 @@ SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ()
 > of `SECRET_KEY`, or to share it across services for cross-log correlation.
 > If unset, it falls back to `SECRET_KEY`.
 
+> **Note on key rotation.** `SESSION_ARMOR_STATE_KEY_FALLBACKS` lists retired
+> state keys. They only verify existing session state, which is then re-signed
+> with the current key; they never sign. Left at `None`, a state key that
+> follows `SECRET_KEY` uses Django's `SECRET_KEY_FALLBACKS`, so Django's
+> documented rotation keeps sessions alive. Do not keep a key that may have
+> leaked. Session identifiers (the gate cache scope) change once, so gates
+> re-check once.
+
 > **Note on proxy trust.** The secure default (`DEPTH = 0`) ignores
 > `X-Forwarded-For`. To use it, configure both the exact number of proxy hops
 > and their CIDR ranges. Each trusted hop is checked from the socket peer back
-> toward the client; malformed chains and catch-all trusted networks are rejected.
+> toward the client; a malformed client entry or hop and catch-all trusted
+> networks are rejected. Entries left of the client are never read, and
+> forwarded entries may carry a port.
 
 ## Building a Gate
 
@@ -114,15 +125,32 @@ class ComplianceGate(GateMiddleware):
         return redirect('/accept-terms/')
 ```
 
+A gate with `requires_trusted_session = True` rejects every path that
+`SessionSecurityMiddleware` exempts, unless its own `exempt_paths` repeat them.
+Set `follow_session_exemptions = True` to let those requests through instead.
+
+If `check()` raises, `on_error()` turns the failure into a rejection, and that
+rejection is cached for the full TTL like any other result. Set
+`error_cache_ttl` (seconds) to re-check sooner once a dependency recovers.
+
+The page a rejection leads to can read the last result with
+`ComplianceGate.get_cached_decision(request)` or `get_context(request)`; the
+`_gate_*` session keys behind them are private.
+
 ### "Check once" gates
 
 For gates that should only kick in once (onboarding, compliance), set
-`recheck_after_pass = False`: a passing result stays cached in the session
-with no TTL re-checks. To push new requirements to already-passed sessions
-(a new document version, a new onboarding step), implement
-`get_state_version()` against a shared cache key and bump that key on
-publish — every active session re-checks exactly once, with no per-request
-database hits:
+`recheck_after_pass = False`: a passing result is then reused with no TTL
+re-checks, for up to `sticky_pass_max_age` seconds and while
+`get_state_version()` returns the version it was cached under. A sticky pass
+needs at least one of the two: with no `sticky_pass_max_age` and a `None`
+version, a pass is never reused and `check()` runs on every request.
+Rejections still re-check on the TTL. To push new requirements to
+already-passed sessions (a new document version, a new onboarding step),
+implement `get_state_version()` against a shared cache key and bump that key
+on publish — every active session re-checks exactly once, with no per-request
+database hits. It must return a non-empty string of at most 256 characters or
+`None`; anything else, an empty string included, fails closed:
 
 ```python
 from django.core.cache import cache
@@ -130,10 +158,12 @@ from django.core.cache import cache
 class ComplianceGate(GateMiddleware):
     gate_id = 'compliance'
     recheck_after_pass = False  # Pass once, stay passed
+    sticky_pass_max_age = 3600  # Re-check a pass at least hourly, version or not
 
     def get_state_version(self, request) -> str | None:
-        # Bumped by admin tooling when a new document version is published
-        return cache.get(f'compliance_version:{request.user.platform}', '')
+        # Bumped by admin tooling when a new document version is published;
+        # None until the key is first set.
+        return cache.get(f'compliance_version:{request.user.platform}')
 
     def check(self, request) -> GateDecision:
         return (
@@ -143,10 +173,11 @@ class ComplianceGate(GateMiddleware):
         )
 ```
 
-> **Sticky passes and revocation.** With `recheck_after_pass = False`, a pass
-> is cached until the session ends, `invalidate()` is called, or the state
-> version changes — so it is **not** appropriate for authorization/entitlement
-> gates where access may be revoked. For those, use a normal TTL gate, drive
+> **Sticky passes and revocation.** With `recheck_after_pass = False` and a
+> state version but no `sticky_pass_max_age`, a pass is cached until the
+> session ends, `invalidate()` is called, or the state version changes — so it
+> is **not** appropriate for authorization/entitlement gates where access may
+> be revoked. For those, use a normal TTL gate, drive
 > `get_state_version()`, or set `sticky_pass_max_age` (seconds) to cap how long
 > a sticky pass may be reused before a forced re-check.
 
@@ -168,8 +199,22 @@ class MySessionSecurity(SessionSecurityMiddleware):
         return f'/{platform}/login/' if platform else '/login/'
 
 # After a reviewed server-side claim update, use the public API rather than
-# writing SessionArmor's private session keys.
-MySessionSecurity(lambda request: request).rebaseline_claims(request)
+# writing SessionArmor's private session keys. Pass the updated user when
+# request.user still holds the old claims; refresh_assurance=True also
+# re-verifies and re-issues this request's evidence, so code never builds
+# SessionAssurance itself.
+MySessionSecurity(lambda request: request).rebaseline_claims(
+    request, updated_user, refresh_assurance=True
+)
+
+# At an authentication boundary (a new sign-in on an existing session), forget
+# the previous state; has_state(session) says whether rebaseline_claims() can run.
+MySessionSecurity.discard_state(request.session)
+
+# In the login view, once the session holds the new identity, bind it to the
+# client that logged in. Otherwise the first later request presenting the new
+# cookie sets the binding (with signed cookies, at any time until it expires).
+MySessionSecurity(lambda request: request).establish(request, user)
 ```
 
 ## AccessGate integration
@@ -208,6 +253,10 @@ class MyAudit(AuditMiddleware):
             'org': request.user.organization_uuid,
         }
 ```
+
+`path` is reserved evidence that `before_log()` cannot change. When URL paths
+carry secrets (invitation tokens, one-time codes), override
+`get_audit_path(request)` to return a redacted path instead.
 
 ---
 

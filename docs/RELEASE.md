@@ -9,7 +9,10 @@
 4. Validate metadata, inspect wheel/sdist contents, generate SHA-256 hashes and
    an SBOM, and retain them with the workflow evidence.
 5. Publish only from a protected GitHub release environment using PyPI Trusted
-   Publishing. The release tag must exactly match the package version.
+   Publishing. The release tag must exactly match the package version. The
+   PyPI trusted publisher must name the `pypi` environment, and that environment
+   must allow only `main` and `v*` tags; otherwise a workflow edited on another
+   branch can publish.
 6. Install the published wheel in a clean environment and run a smoke test.
 7. Roll consumers through staged deployment with session-termination, gate
    rejection, audit failure, and AccessGate assurance-denial observability.

@@ -16,6 +16,8 @@ from ...exceptions import SessionConfigurationError
 # null bytes, control characters).
 _LOG_UNSAFE_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\r\n]")
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+# Every purpose the session middleware derives a MAC subkey for starts with this.
+_KEY_DERIVATION_NAMESPACE = "session-armor:"
 
 
 def hash_value(value: str, length: int = 0) -> str:
@@ -27,6 +29,20 @@ def hash_value(value: str, length: int = 0) -> str:
     """
     h = hashlib.sha256(value.encode("utf-8")).hexdigest()
     return h[:length] if length else h
+
+
+def _secret_bytes(value: object, name: str) -> bytes:
+    """Encode a configured secret. Only text and bytes are keys: ``bytes()``
+    would turn an integer into a public all-zero key."""
+    if isinstance(value, str):
+        encoded = value.encode("utf-8")
+    elif isinstance(value, bytes | bytearray):
+        encoded = bytes(value)
+    else:
+        raise SessionConfigurationError(f"{name} must be bytes or a string.")
+    if len(encoded) < 16:
+        raise SessionConfigurationError(f"{name} must contain at least 16 bytes.")
+    return encoded
 
 
 def _audit_pepper() -> bytes:
@@ -41,12 +57,7 @@ def _audit_pepper() -> bytes:
     pepper = getattr(settings, "SESSION_ARMOR_AUDIT_PEPPER", "") or getattr(
         settings, "SECRET_KEY", ""
     )
-    encoded = pepper.encode("utf-8") if isinstance(pepper, str) else bytes(pepper)
-    if len(encoded) < 16:
-        raise SessionConfigurationError(
-            "SESSION_ARMOR_AUDIT_PEPPER (or SECRET_KEY) must contain at least 16 bytes."
-        )
-    return encoded
+    return _secret_bytes(pepper, "SESSION_ARMOR_AUDIT_PEPPER (or SECRET_KEY)")
 
 
 def hash_ip(ip: str, length: int = 16) -> str:
@@ -60,21 +71,40 @@ def hash_ip(ip: str, length: int = 16) -> str:
     the same IP yields a stable token for correlation across log lines.
 
     Truncated to ``length`` hex chars (default 16); pass ``length=0`` for
-    the full digest.
+    the full digest. Values starting with ``session-armor:`` are hashed
+    under a separate derived key: that namespace is reserved for key
+    derivation.
     """
     if not isinstance(ip, str):
         raise TypeError("ip must be a string.")
     if isinstance(length, bool) or not isinstance(length, int) or not 0 <= length <= 64:
         raise ValueError("length must be an integer between 0 and 64.")
-    digest = hmac.new(_audit_pepper(), ip.encode("utf-8"), hashlib.sha256).hexdigest()
+    pepper = _audit_pepper()
+    if ip.startswith(_KEY_DERIVATION_NAMESPACE):
+        # The session middleware derives its MAC subkeys as HMAC(key, purpose)
+        # with purposes in this namespace, and the pepper and the state key
+        # both default to SECRET_KEY. Such a value is hashed under a separate
+        # key, so no digest can be a subkey; every other digest is unchanged.
+        pepper = hmac.digest(pepper, b"session-armor:audit:v1", hashlib.sha256)
+    digest = hmac.new(pepper, ip.encode("utf-8"), hashlib.sha256).hexdigest()
     return digest[:length] if length else digest
+
+
+def _proxy_network(value: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
+    network = ipaddress.ip_network(value, strict=False)
+    if isinstance(network, ipaddress.IPv6Network) and network.prefixlen >= 96:
+        mapped = network.network_address.ipv4_mapped
+        if mapped is not None:
+            # Compare IPv4-mapped ranges in IPv4 form, like addresses (see _ip).
+            return ipaddress.ip_network(f"{mapped}/{network.prefixlen - 96}")
+    return network
 
 
 def _proxy_networks(values: Iterable[str]) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
     if isinstance(values, str):
         raise SessionConfigurationError("SESSION_ARMOR_TRUSTED_PROXY_CIDRS must be an iterable.")
     try:
-        networks = tuple(ipaddress.ip_network(value, strict=False) for value in values)
+        networks = tuple(_proxy_network(value) for value in values)
     except (TypeError, ValueError) as error:
         raise SessionConfigurationError(
             "SESSION_ARMOR_TRUSTED_PROXY_CIDRS contains an invalid network."
@@ -84,43 +114,76 @@ def _proxy_networks(values: Iterable[str]) -> tuple[ipaddress.IPv4Network | ipad
     return networks
 
 
-def _ip(value: object) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+def _ip(
+    value: object, *, allow_port: bool = False
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     if not isinstance(value, str) or not value:
         return None
+    text = value.strip()
+    if allow_port:
+        # Some proxies append the port: "a.b.c.d:port" or "[v6]:port".
+        if text.startswith("["):
+            text, bracket, port = text[1:].partition("]")
+            if not bracket or (port and not (port[0] == ":" and _is_port(port[1:]))):
+                return None
+        elif text.count(":") == 1:
+            text, _, port = text.partition(":")
+            if not _is_port(port):
+                return None
     try:
-        return ipaddress.ip_address(value.strip())
+        address = ipaddress.ip_address(text)
     except ValueError:
         return None
+    # A dual-stack socket reports IPv4 peers as "::ffff:a.b.c.d". Use the IPv4
+    # form so IPv4 CIDRs match it and the result does not depend on how the
+    # running Python version prints mapped addresses.
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    return address
+
+
+def _is_port(value: str) -> bool:
+    return value.isascii() and value.isdigit()
 
 
 def get_client_ip(request) -> str:
     """
-    Extract the originating client IP with proxy-depth awareness.
+    Return the originating client IP, or ``""`` when it cannot be trusted.
 
-    ``SESSION_ARMOR_TRUSTED_PROXY_DEPTH`` is the number of reverse proxies
-    you operate in front of the app (default ``1``). Only that many
-    rightmost ``X-Forwarded-For`` entries are trusted; the client IP is the
-    entry just before the trusted proxies.
+    ``SESSION_ARMOR_TRUSTED_PROXY_DEPTH`` (default ``0``) is the number of
+    reverse proxies in front of the app. With ``0``, ``X-Forwarded-For`` is
+    ignored and ``REMOTE_ADDR`` is returned.
 
-    If the header has fewer entries than the proxy depth (i.e. the request
-    didn't traverse enough proxies), we fall back to ``REMOTE_ADDR`` to
-    avoid trusting a spoofed header.
+    With a depth of ``N``, the socket peer (``REMOTE_ADDR``) and the ``N - 1``
+    rightmost ``X-Forwarded-For`` entries are the trusted hops, and every one
+    must fall inside ``SESSION_ARMOR_TRUSTED_PROXY_CIDRS`` (required, or
+    :class:`SessionConfigurationError` is raised). The client is the entry
+    immediately to their left; entries further left are never read. A request
+    without the header is treated as a direct connection and gets
+    ``REMOTE_ADDR``. A malformed client entry or hop, too short a chain or an
+    untrusted hop returns ``""``, which the session middleware treats as a
+    violation. So does a Unix-socket peer, which has no address: override
+    ``get_fingerprint_factors()`` or disable IP binding behind one.
 
-    Setting the depth to ``0`` opts into the legacy, **insecure** behavior
-    of trusting the leftmost (fully client-controlled) entry. Only do this
-    if you have an upstream that overwrites ``X-Forwarded-For`` and you know
-    what you're doing.
+    Forwarded entries may carry a port (``a.b.c.d:port`` or ``[v6]:port``).
+    IPv4-mapped IPv6 addresses are returned, and matched, in IPv4 form.
 
-    Examples with ``SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1``::
+    Examples with ``CIDRS = ("10.0.0.0/8",)`` and ``REMOTE_ADDR = "10.0.0.5"``.
+    The default ``DEPTH = 0`` ignores the header::
 
-        X-Forwarded-For: spoofed, real, proxy1
-        → returns "real"
+        X-Forwarded-For: 203.0.113.7                 -> "10.0.0.5"
 
-        X-Forwarded-For: real, proxy1
-        → returns "real"
+    ``DEPTH = 1`` trusts only the socket peer::
 
-        X-Forwarded-For: spoofed_only
-        → returns REMOTE_ADDR (not enough hops)
+        X-Forwarded-For: 198.51.100.66, 203.0.113.7  -> "203.0.113.7"
+        X-Forwarded-For: 203.0.113.7                 -> "203.0.113.7"
+        X-Forwarded-For: unknown, 203.0.113.7:51234  -> "203.0.113.7"
+        X-Forwarded-For: not-an-ip                   -> ""
+
+    ``DEPTH = 2`` also needs the rightmost entry to be a trusted proxy::
+
+        X-Forwarded-For: 198.51.100.66, 203.0.113.7, 10.0.0.7  -> "203.0.113.7"
+        X-Forwarded-For: 203.0.113.7, 198.51.100.66             -> ""
     """
     depth = getattr(settings, "SESSION_ARMOR_TRUSTED_PROXY_DEPTH", 0)
     if isinstance(depth, bool) or not isinstance(depth, int) or not 0 <= depth <= 16:
@@ -140,12 +203,15 @@ def get_client_ip(request) -> str:
         raise SessionConfigurationError(
             "Trusted proxy CIDRs are required when SESSION_ARMOR_TRUSTED_PROXY_DEPTH is non-zero."
         )
-    chain = [_ip(part) for part in forwarded.split(",")]
-    if remote is None or any(part is None for part in chain):
+    entries = forwarded.split(",")
+    if remote is None or len(entries) < depth:
+        return ""
+    # Only the client entry and the trusted hops are read. Entries to their left
+    # are client-controlled and never used, so they cannot invalidate the chain.
+    chain = [_ip(part, allow_port=True) for part in entries[-depth:]]
+    if any(part is None for part in chain):
         return ""
     addresses = [part for part in chain if part is not None] + [remote]
-    if len(addresses) <= depth:
-        return ""
 
     trusted_hops = addresses[-depth:]
     if any(not any(address in network for network in networks) for address in trusted_hops):
@@ -202,6 +268,7 @@ def path_is_exempt(path: str, prefixes: tuple[str, ...]) -> bool:
     Plain ``str.startswith`` would let ``/health`` accidentally exempt
     sibling paths like ``/health-internal`` that merely share a string
     prefix — a classic way to widen an exemption further than intended.
+    For the same reason ``/`` exempts only the root path, not every path.
     """
     if not isinstance(path, str) or not path.startswith("/"):
         return False
@@ -219,6 +286,8 @@ def path_is_exempt(path: str, prefixes: tuple[str, ...]) -> bool:
             )
         if path == prefix:
             return True
+        if prefix == "/":
+            continue
         boundary = prefix if prefix.endswith("/") else prefix + "/"
         if path.startswith(boundary):
             return True

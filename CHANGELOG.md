@@ -7,6 +7,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- `SessionSecurityMiddleware`, `GateMiddleware` and `AuditMiddleware` match
+  `exempt_paths` against `request.path_info` (the path Django routes on) instead
+  of `request.path`, so a `SCRIPT_NAME` taken from a forwarded request header
+  can no longer exempt a protected view. Remove any mount prefix written into
+  `exempt_paths`.
+- An exempt path of `/` exempts only the root URL; as a prefix it used to exempt
+  every path from session checks, gates and audit.
+- `SESSION_ARMOR_STATE_KEY`, `SESSION_ARMOR_AUDIT_PEPPER` and fallback keys must
+  be `str` or `bytes`; other types, such as an integer that `bytes()` turned into
+  a public all-zero key, raise `SessionConfigurationError`.
+- `hash_ip()` hashes values in the reserved `session-armor:` namespace under a
+  separate derived key, so no digest can equal a state-MAC subkey when the audit
+  pepper and the state key share `SECRET_KEY`. Other digests are unchanged.
+- Gate cache entries record the gate class that wrote them; a gate never reuses a
+  result cached by a different class with the same `gate_id`.
+- Audit: `error_type` is reserved evidence that hooks can neither supply nor
+  change, `get_extra_fields()` keys that repeat identity keys raise
+  `AuditEmissionError`, and `before_log()` edits made in place on reserved fields
+  are rejected like edits on a copy.
+- Audit: a client IP that cannot be validated is recorded as `ip_hash: null`
+  instead of losing the event, and a request whose view logs the user out is
+  recorded and attributed to the user it arrived with.
+
+### Added
+
+- `SESSION_ARMOR_STATE_KEY_FALLBACKS` for graceful key rotation: retired keys only
+  verify existing state, which is then re-signed with the current key. When it is
+  unset, a state key that follows `SECRET_KEY` honours `SECRET_KEY_FALLBACKS`.
+- `SessionSecurityMiddleware.establish(request, user=None)` binds a session during
+  the login request.
+- `SessionSecurityMiddleware.refresh_assurance(request, user=None)` re-verifies
+  the session and re-issues trusted evidence right before a late authorization
+  decision, and `rebaseline_claims(..., refresh_assurance=True)` does the same
+  after a claim rebaseline, so integrations never build `SessionAssurance`.
+- `SessionSecurityMiddleware.has_state()`, `discard_state()` and
+  `binding_digests()` replace reading the private `_sa_*`/`_ss_*` keys and
+  re-deriving per-factor diagnostics.
+- `GateMiddleware.error_cache_ttl` caps how long a rejection from `on_error()` is
+  reused, `follow_session_exemptions` lets a gate follow SessionArmor's own
+  exemptions, and `get_cached_decision()` returns the last stored gate result.
+- `AuditMiddleware.get_audit_path()` keeps secrets carried in URL paths out of
+  audit records; the returned path stays reserved evidence.
+
+### Changed
+
+- A request without a User-Agent is bound to an explicit "absent" marker instead
+  of failing evaluation; a session started with a User-Agent still ends with
+  `fingerprint_mismatch` if the header disappears.
+- IPv4-mapped IPv6 peers (`::ffff:a.b.c.d`) are returned and matched in IPv4
+  form. Dual-stack deployments see one `fingerprint_mismatch` per live session and
+  new audit `ip_hash` values for those clients after upgrading;
+  `::ffff:0:0/96` is rejected as a catch-all CIDR.
+- With a non-zero `SESSION_ARMOR_TRUSTED_PROXY_DEPTH`, `get_client_ip` reads only
+  the client entry and the trusted hops, and forwarded entries may carry a port.
+- `GateMiddleware` no longer converts exceptions from the view or inner
+  middleware into `gate_evaluation_error` rejections; only gate evaluation fails
+  closed.
+- Evidence never reports `established_at`/`last_activity_at` later than its
+  `verified_at` when another instance's clock ran ahead, so AccessGate no longer
+  denies those sessions with `invalid_session_timeline`.
+- HMAC subkeys are cached per key and purpose, and audit events the logger would
+  drop are validated but not rendered; stored MACs and emitted lines are
+  unchanged.
+- Django hooks declare `HttpResponseBase` return types; the branch-coverage gate
+  is 83% with new fail-closed regression tests, and a bridge test runs real
+  evidence through AccessGate (the `dev` extra installs AccessGate).
+- Release workflows stay manually dispatched but refuse refs other than `main`
+  or `v<version>`, run lint, type checks and tests first, and build with the
+  hash-locked tools in `requirements/build.txt`.
+
+### Fixed
+
+- Contained session-evaluation and re-verification errors are logged at WARNING
+  with a traceback on `session_armor.session`; an exception from `on_timeout()` is
+  logged and no longer replaces the timeout reason; a malformed
+  `SESSION_ARMOR_STATE_KEY_FALLBACKS` is reported on the first request.
+- `on_violation()` runs once even when terminating the session fails.
+- The default `get_login_url()` honours a lazy `LOGIN_URL` such as
+  `reverse_lazy(...)`.
+- Gates with `requires_auth = False` no longer reject every anonymous request.
+- `GateDecision` applies the string-length and finite-number checks to list items
+  in `context`.
+- Audit entries over 16,384 characters are re-rendered with only the reserved and
+  identity fields and `truncated: true` instead of being cut into invalid JSON.
+- The MCP server writes ASCII-only JSON, reads stdin as UTF-8 under any locale,
+  answers unserializable responses with -32603 and invalid UTF-8 with -32700
+  instead of exiting, omits `outputSchema` when a tool defines none, answers
+  `ping`, and rejects a `null` request id; its contract lists every setting the
+  package reads.
+- The `get_client_ip` docstring, the README "check once" gate example and the
+  SECURITY.md support table match the code and the 0.5.x line.
+
 ## [0.5.0] - 2026-08-16
 
 ### Changed

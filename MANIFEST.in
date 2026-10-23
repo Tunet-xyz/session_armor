@@ -4,6 +4,6 @@ include README.md
 include SECURITY.md
 recursive-include docs *.md
 recursive-include mcp *.json *.md *.py
-recursive-include requirements *.in
+recursive-include requirements *.in *.txt
 recursive-include tests *.py
 recursive-include tools *.py

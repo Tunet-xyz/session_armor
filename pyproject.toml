@@ -49,6 +49,8 @@ dev = [
   "django-stubs>=4.2.0",
   "bandit>=1.7",
   "pip-audit>=2.7",
+  # Runs tests/test_accessgate_bridge.py: real evidence through AccessGate.
+  "AccessGate>=0.3.0a1,<0.4",
 ]
 
 [project.urls]
@@ -108,3 +110,6 @@ known-first-party = ["session_armor"]
 source = ["src/session_armor"]
 branch = true
 omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 83

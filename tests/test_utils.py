@@ -1,5 +1,12 @@
 """Tests for SessionArmor's Django adapter utilities."""
 
+import hashlib
+import hmac
+import re
+
+import pytest
+
+from session_armor import SessionConfigurationError
 from session_armor.adapters.django.utils import (
     get_client_ip,
     hash_ip,
@@ -75,6 +82,38 @@ class TestHashIp:
         settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-long-enough-for-tests"
         assert hash_ip("1.2.3.4", length=0) != hash_value("1.2.3.4")
 
+    @pytest.mark.parametrize("value", [64, [65] * 20])
+    def test_non_text_pepper_is_a_configuration_error(self, settings, value):
+        settings.SESSION_ARMOR_AUDIT_PEPPER = value
+        with pytest.raises(SessionConfigurationError):
+            hash_ip("1.2.3.4")
+
+    def test_bytes_pepper_is_accepted(self, settings):
+        settings.SESSION_ARMOR_AUDIT_PEPPER = b"bytes-pepper-long-enough"
+        assert len(hash_ip("1.2.3.4")) == 16
+
+    @pytest.mark.parametrize(
+        "purpose",
+        [
+            "session-armor:state:v1",
+            "session-armor:binding:v1",
+            "session-armor:claims:v1",
+            "session-armor:identifier:v1",
+        ],
+    )
+    def test_never_digests_a_state_mac_subkey(self, settings, purpose):
+        # The pepper and the state key both default to SECRET_KEY.
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "shared-secret-long-enough"
+        settings.SESSION_ARMOR_STATE_KEY = "shared-secret-long-enough"
+        subkey = hmac.new(b"shared-secret-long-enough", purpose.encode(), hashlib.sha256)
+        assert hash_ip(purpose, length=0) != subkey.hexdigest()
+        assert hash_ip(purpose, length=0) == hash_ip(purpose, length=0)
+
+    def test_ip_digests_are_unchanged(self, settings):
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "pepper-long-enough-for-tests"
+        expected = hmac.new(b"pepper-long-enough-for-tests", b"1.2.3.4", hashlib.sha256)
+        assert hash_ip("1.2.3.4", length=0) == expected.hexdigest()
+
     def test_falls_back_to_secret_key(self, settings):
         # No dedicated pepper → uses SECRET_KEY, still keyed (not raw SHA-256).
         settings.SESSION_ARMOR_AUDIT_PEPPER = ""
@@ -138,6 +177,84 @@ class TestGetClientIp:
         settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
         req = FakeRequest({})
         assert get_client_ip(req) == ""
+
+    def test_ipv4_mapped_addresses_use_the_ipv4_form(self, settings):
+        # Dual-stack sockets report IPv4 peers as "::ffff:a.b.c.d".
+        settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
+        assert get_client_ip(FakeRequest({"REMOTE_ADDR": "::ffff:198.51.100.9"})) == "198.51.100.9"
+        settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1
+        for cidrs in (("10.0.0.0/8",), ("::ffff:10.0.0.0/104",)):
+            settings.SESSION_ARMOR_TRUSTED_PROXY_CIDRS = cidrs
+            req = FakeRequest(
+                {
+                    "HTTP_X_FORWARDED_FOR": "::ffff:198.51.100.9",
+                    "REMOTE_ADDR": "::ffff:10.0.0.5",
+                }
+            )
+            assert get_client_ip(req) == "198.51.100.9"
+
+    def test_ipv4_mapped_catch_all_cidr_is_rejected(self, settings):
+        settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1
+        settings.SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ("::ffff:0:0/96",)
+        req = FakeRequest({"HTTP_X_FORWARDED_FOR": "198.51.100.9", "REMOTE_ADDR": "10.0.0.5"})
+        with pytest.raises(SessionConfigurationError, match="catch-all"):
+            get_client_ip(req)
+
+    def test_entries_left_of_the_client_are_ignored(self, settings):
+        # They are client-controlled (or added by client-side proxies) and never used.
+        settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 2
+        settings.SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ("10.0.0.0/8",)
+        for junk in ("unknown", "_hidden", "", "198.51.100.66:x"):
+            req = FakeRequest(
+                {
+                    "HTTP_X_FORWARDED_FOR": f"{junk}, 198.51.100.9, 10.0.0.7",
+                    "REMOTE_ADDR": "10.0.0.5",
+                }
+            )
+            assert get_client_ip(req) == "198.51.100.9"
+        # The client entry and every trusted hop must still be valid.
+        for xff in ("unknown, 10.0.0.7", "198.51.100.9, unknown", "10.0.0.7"):
+            req = FakeRequest({"HTTP_X_FORWARDED_FOR": xff, "REMOTE_ADDR": "10.0.0.5"})
+            assert get_client_ip(req) == ""
+
+    @pytest.mark.parametrize(
+        ("entry", "expected"),
+        [
+            ("198.51.100.9:52311", "198.51.100.9"),
+            ("[2001:db8::7]:443", "2001:db8::7"),
+            ("[2001:db8::7]", "2001:db8::7"),
+            ("2001:db8::7", "2001:db8::7"),
+            ("198.51.100.9:", ""),
+            ("198.51.100.9:http", ""),
+            ("[2001:db8::7]:", ""),
+            ("[2001:db8::7", ""),
+        ],
+    )
+    def test_forwarded_entries_may_carry_a_port(self, settings, entry, expected):
+        settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 1
+        settings.SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ("10.0.0.0/8",)
+        req = FakeRequest({"HTTP_X_FORWARDED_FOR": entry, "REMOTE_ADDR": "10.0.0.5"})
+        assert get_client_ip(req) == expected
+
+    def test_socket_peer_never_carries_a_port(self, settings):
+        settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
+        assert get_client_ip(FakeRequest({"REMOTE_ADDR": "198.51.100.9:52311"})) == ""
+
+    def test_docstring_examples_match_behaviour(self, settings):
+        examples = []
+        depth = None
+        for line in get_client_ip.__doc__.splitlines():
+            found = re.search(r"DEPTH = (\d+)", line)
+            depth = int(found.group(1)) if found else depth
+            example = re.search(r'X-Forwarded-For: (.+?)\s+-> "([^"]*)"', line)
+            if example:
+                examples.append((depth, example.group(1), example.group(2)))
+        assert len(examples) >= 5
+        settings.SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ("10.0.0.0/8",)
+        for depth, forwarded, expected in examples:
+            settings.SESSION_ARMOR_TRUSTED_PROXY_DEPTH = depth
+            req = FakeRequest({"HTTP_X_FORWARDED_FOR": forwarded, "REMOTE_ADDR": "10.0.0.5"})
+            assert get_client_ip(req) == expected, (depth, forwarded)
 
     def test_default_depth_is_secure(self, settings):
         # The default ignores client-controlled forwarding headers.
@@ -222,3 +339,10 @@ class TestPathIsExempt:
         assert path_is_exempt("/static/app.css", prefixes) is True
         assert path_is_exempt("/health/ping", prefixes) is True
         assert path_is_exempt("/admin", prefixes) is False
+
+    def test_root_prefix_exempts_only_the_root_path(self):
+        # As a segment prefix "/" would silently exempt every path.
+        assert path_is_exempt("/", ("/",)) is True
+        assert path_is_exempt("/admin/", ("/",)) is False
+        assert path_is_exempt("/account/delete/", ("/", "/static/")) is False
+        assert path_is_exempt("/static/app.css", ("/", "/static/")) is True
