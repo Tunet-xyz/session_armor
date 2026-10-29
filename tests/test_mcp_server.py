@@ -42,7 +42,7 @@ def test_initialize_reports_release_version() -> None:
         {"jsonrpc": "2.0", "id": 1, "method": "initialize"}, load_contract()
     )
     assert response is not None
-    assert response["result"]["serverInfo"]["version"] == "0.5.0"
+    assert response["result"]["serverInfo"]["version"] == "0.6.0"
 
 
 @pytest.mark.parametrize(
@@ -194,7 +194,7 @@ def test_stdio_output_is_ascii_and_survives_lone_surrogates(monkeypatch, capsys)
     responses = [json.loads(line) for line in output.splitlines()]
     assert responses[0]["id"] == "\ud83d"
     assert responses[1]["error"]["message"] == "Method not found: x\udc00"
-    assert responses[2]["result"]["serverInfo"]["version"] == "0.5.0"
+    assert responses[2]["result"]["serverInfo"]["version"] == "0.6.0"
 
 
 def test_unserializable_response_becomes_an_internal_error(capsys) -> None:
@@ -245,7 +245,7 @@ def test_stdio_server_decodes_utf8_whatever_the_locale_encoding() -> None:
         assert responses[0]["error"]["code"] == -32700
         assert responses[0]["error"]["data"]["detail"] == "MCP messages must be valid UTF-8."
         assert responses[1]["result"]["structuredContent"]["arguments"] == {"goal": "\u00c1bel \u2192 \u691c\u8a3c"}
-        assert responses[2]["result"]["serverInfo"]["version"] == "0.5.0"
+        assert responses[2]["result"]["serverInfo"]["version"] == "0.6.0"
 
 
 def test_parser_rejects_text_that_is_not_utf8() -> None:

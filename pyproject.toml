@@ -11,7 +11,7 @@ session_armor = ["py.typed", "mcp/*.json"]
 
 [project]
 name = "SessionArmor"
-version = "0.5.0"
+version = "0.6.0"
 description = "Framework-neutral session-assurance contracts with optional security adapters."
 readme = "README.md"
 requires-python = ">=3.10"

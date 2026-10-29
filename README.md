@@ -217,6 +217,16 @@ MySessionSecurity.discard_state(request.session)
 MySessionSecurity(lambda request: request).establish(request, user)
 ```
 
+`exempt_paths` are matched against `request.path_info`, the path Django routes
+on, so leave any deployment mount prefix out of them. Matching respects path
+segments: `/health` exempts `/health` and `/health/live` but not
+`/health-internal`, and `/` exempts only the root URL.
+
+To diagnose a `fingerprint_mismatch`, `binding_digests(request)` returns keyed
+digests of each binding factor (`hash_ip(value, length=12)` with the audit
+pepper), so logs can show which factor changed without holding a raw IP or
+User-Agent.
+
 ## AccessGate integration
 
 SessionArmor and AccessGate are complementary boundaries. SessionArmor decides
@@ -236,7 +246,10 @@ engine = AuthorizationEngine([
 ```
 
 The assurance policy is deny-only: a trusted session never grants a permission
-by itself. See [`docs/ACCESSGATE_INTEGRATION.md`](docs/ACCESSGATE_INTEGRATION.md).
+by itself. When slow work sits between SessionArmor and the authorization
+decision, call `refresh_assurance(request)` just before deciding: it
+re-verifies the session and re-issues the evidence, and can withdraw trust but
+never grant it. See [`docs/ACCESSGATE_INTEGRATION.md`](docs/ACCESSGATE_INTEGRATION.md).
 
 ## Customizing Audit Logging
 

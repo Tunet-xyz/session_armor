@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 import session_armor
 from tools.generate_sbom import generate_sbom
 
@@ -37,6 +39,8 @@ def test_release_build_tools_are_hash_locked() -> None:
 
 def test_release_build_uses_the_locked_backend() -> None:
     root = Path(__file__).parents[1]
+    if not (root / ".github").is_dir():
+        pytest.skip("the release workflows are not shipped in the sdist")
     workflow = (root / ".github" / "workflows" / "publish.yaml").read_text()
     builds = re.findall(r"python -m build\b[^\n]*", workflow)
     lock = (root / "requirements" / "build.txt").read_text()

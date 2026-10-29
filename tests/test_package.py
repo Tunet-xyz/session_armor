@@ -15,7 +15,7 @@ from session_armor.adapters.django import (
 
 
 def test_package_version_matches_release():
-    assert session_armor.__version__ == "0.5.0"
+    assert session_armor.__version__ == "0.6.0"
 
 
 def test_django_hooks_declare_their_response_contracts():
