@@ -8,6 +8,7 @@ concurrency: {group: "pypi-publish-${{ github.ref }}", cancel-in-progress: false
 
 jobs:
   verify:
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -33,6 +34,7 @@ jobs:
           pytest
 
   build:
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -55,6 +57,7 @@ jobs:
         with: {name: release-distributions, path: dist/, if-no-files-found: error}
 
   pypi-publish:
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15

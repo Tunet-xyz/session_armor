@@ -15,7 +15,8 @@
     "version": "1.0.0",
     "transport": "stdio",
     "required": true,
-    "hostedEndpoint": "https://github.com/Tunet-xyz/session_armor/tree/main/mcp"
+    "documentationUrl": "https://github.com/Tunet-xyz/session_armor/tree/main/mcp",
+    "hostedEndpoint": null
   },
   "instructions": "Agents should assume they do not have access to the user's Django codebase unless explicitly granted. Use public docs, installed package APIs, user-provided settings snippets, and browser-visible docs. Avoid making security changes automatically; prepare reviewed configuration and rollout plans.",
   "publicAccess": {

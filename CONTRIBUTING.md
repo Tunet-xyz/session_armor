@@ -13,8 +13,9 @@ The owner (`@bezu-1`) reviews and approves external changes before merge.
 New commits invalidate previous approval. Workflow and release configuration
 receive the same owner review as application code.
 
-PRs, issues, comments, and agent mentions do not start coding agents or GitHub
-Actions and do not grant access to paid agent tokens or publishing credentials.
+PRs, issues, comments, and agent mentions cannot authorize coding agents, GitHub
+Actions, paid agent-token use, or publishing credentials. Vendor-hosted GitHub
+app access must also be restricted separately in the owner's account settings.
 Only the owner starts manual workflows; contributors should include their local
 test results. Do not request that an agent approve or merge its own work.
 
