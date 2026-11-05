@@ -24,7 +24,7 @@
     "pythonPackage": "pip install SessionArmor",
     "pythonApi": ["SessionAssurance", "GateDecision", "GateOutcome"],
     "djangoAdapter": "pip install SessionArmor[django]; import middleware from session_armor.adapters.django",
-    "cli": [],
+    "cli": ["sessionarmor-mcp"],
     "docsUrl": "https://github.com/Tunet-xyz/session_armor#readme",
     "pypiUrl": "https://pypi.org/project/SessionArmor/",
     "repositoryUrl": "https://github.com/Tunet-xyz/session_armor",
