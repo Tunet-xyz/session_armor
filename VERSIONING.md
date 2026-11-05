@@ -61,8 +61,10 @@ version; yank an unsafe version when appropriate and explain the replacement.
    approve a protected deployment on the owner's behalf.
 7. GitHub Actions entry points are **manual-only** (`workflow_dispatch`). Only
    the user may start, rerun, or re-enable them. Run their checks locally when
-   working as an agent. No PR, push, issue, comment, mention, or schedule starts
-   an agent or a workflow. Do not introduce `pull_request_target` or untrusted
+   working as an agent. PRs, pushes, issues, comments, mentions, and schedules cannot authorize
+   agent work or repository workflow execution. Vendor-hosted GitHub app access
+   must be restricted separately in the owner's app settings; repository
+   instructions do not enforce vendor permissions or billing. Do not introduce `pull_request_target` or untrusted
    checkout execution with credentials.
 8. Prefer PyPI Trusted Publishing bound to this repository, `publish.yaml`, and
    the owner-approved `pypi` environment. Restrict deployment refs to `main` or
