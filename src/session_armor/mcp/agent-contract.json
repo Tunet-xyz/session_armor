@@ -12,7 +12,7 @@
   "server": {
     "name": "session-armor-public-contract-mcp",
     "title": "SessionArmor Public Agent Contract",
-    "version": "0.6.0",
+    "version": "1.0.0",
     "transport": "stdio",
     "required": true,
     "hostedEndpoint": "https://github.com/Tunet-xyz/session_armor/tree/main/mcp"

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -11,16 +11,18 @@ session_armor = ["py.typed", "mcp/*.json"]
 
 [project]
 name = "SessionArmor"
-version = "0.6.0"
+version = "1.0.0"
 description = "Framework-neutral session-assurance contracts with optional security adapters."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["django", "middleware", "security", "session", "audit", "gates", "nist", "owasp"]
 authors = [
   { name = "Tunet Ltd", email = "alex@tunet.xyz" },
 ]
 classifiers = [
+  "Development Status :: 5 - Production/Stable",
   "Framework :: Django",
   "Framework :: Django :: 4.2",
   "Framework :: Django :: 5.0",
@@ -50,7 +52,7 @@ dev = [
   "bandit>=1.7",
   "pip-audit>=2.7",
   # Runs tests/test_accessgate_bridge.py: real evidence through AccessGate.
-  "AccessGate>=0.3.0a1,<0.4",
+  "AccessGate>=0.3.0a1,<2",
 ]
 
 [project.urls]

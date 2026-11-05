@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-05
+
+### Changed
+
+- Stabilized the documented framework-neutral assurance and gate-decision APIs,
+  Django middleware adapters, extension hooks, and local MCP entry point.
+- Adopted the shared SemVer, owner-review, manual-workflow, and immutable-release
+  policy in `VERSIONING.md`, with matching Claude and Codex instructions.
+- Aligned package, runtime, and public MCP versions; preserved the assurance v1
+  schema and the 0.6 middleware behavior.
+- Declared packaged MIT license files and a PEP 639-capable build backend.
+- Made the hash-locked release toolchain cover Windows, Linux, and Python 3.10+
+  instead of relying on a Linux/Python 3.13-only dependency resolution.
+- Allowed the AccessGate 1.x release in the development integration dependency.
+
+### Documentation
+
+- Documented the stable API, pre-0.5 migration boundaries, supported integration
+  ranges, and the local-only scope of the public agent contract.
+
+### Security
+
+- Updated the locked setuptools build tool to 84.2.1, addressing
+  GHSA-xmj3-9gf7-h52w in the previous Windows build toolchain.
+
 ## [0.6.0] - 2026-10-29
 
 ### Security
