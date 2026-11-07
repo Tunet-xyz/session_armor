@@ -8,7 +8,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   analyze:
-    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1' && github.triggering_actor == 'bezu-1'
     runs-on: ubuntu-latest
     permissions: {actions: read, contents: read, security-events: write, packages: read}
     steps:
