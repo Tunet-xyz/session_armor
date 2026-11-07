@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ \"${CLAUDE_CODE_REMOTE:-}\" = \"true\" ]; then git config --global user.name \"Alex\" && git config --global user.email \"bezman.alexc@gmail.com\"; fi"
+            "command": "if [ \"${CLAUDE_CODE_REMOTE:-}\" = \"true\" ] && git remote get-url origin 2>/dev/null | grep -qiE '[/:]Tunet-xyz/[^/]+$'; then git config --global user.name \"Alex\" && git config --global user.email \"bezman.alexc@gmail.com\"; fi"
           }
         ]
       }
