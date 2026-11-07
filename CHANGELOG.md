@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The Product URL points at `www.tunet.xyz`, which serves the product page.
+- README examples corrected: the gate example exempts the page its rejection
+  redirects to, critical claims and audit identity values are converted to
+  strings, and the audit logger's name and levels are documented.
+
 ## [1.0.0] - 2026-11-05
 
 ### Changed
@@ -32,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated the locked setuptools build tool to 84.2.1, addressing
   GHSA-xmj3-9gf7-h52w in the previous Windows build toolchain.
 
-## [0.6.0] - 2026-10-29
+## [0.6.0] - 2026-10-29 (not published to PyPI; included in 1.0.0)
 
 ### Security
 
@@ -144,7 +151,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use Django session mapping views when inspecting session keys, avoiding
   `KeyError: 0` during real `SessionStore` initialization and validation.
 
-## [0.4.0] - 2026-08-15
+## [0.4.0] - 2026-08-15 (not published to PyPI; included in 0.5.0)
 
 ### Security
 
@@ -181,7 +188,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Private `_ss_*` state is migrated to versioned `_sa_*` state on the next
   authenticated request, rotating the Django session key.
 
-## [0.3.0] - 2026-07-15
+## [0.3.0] - 2026-07-15 (not published to PyPI; included in 0.5.0)
 
 ### Security
 - **Audit IP pseudonymization is now non-reversible.** `AuditMiddleware` previously logged the client IP as an unsalted, truncated SHA-256, which is trivially reversible for the small IPv4 space — defeating the "privacy-preserving" guarantee. IPs are now hashed with a keyed HMAC-SHA256 (`hash_ip()`), peppered by the new `SESSION_ARMOR_AUDIT_PEPPER` setting (falls back to `SECRET_KEY`). Hash tokens stay deterministic for correlation but change value; back-compat with previously logged tokens is intentionally broken.
@@ -195,7 +202,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security CI workflow** — `bandit` static analysis (blocking) and `pip-audit` dependency scanning (non-blocking, plus a weekly schedule) added under `.github/workflows/security.yaml`; both tools added to the `dev` extra.
 - **Packaged MCP contract** — added the `sessionarmor-mcp` stdio command and public agent contract for review-first middleware, audit, gate, and rollout guidance.
 
-## [0.2.0] - 2026-06-12
+## [0.2.0] - 2026-06-12 (not published to PyPI; included in 0.5.0)
 
 ### Added
 - **GateMiddleware `recheck_after_pass`** — set to `False` for "check once" gates (onboarding, compliance): a passing result stays cached for the whole session instead of being re-checked on a TTL. Failures still re-check on the TTL, and `invalidate()` still forces an immediate re-check.

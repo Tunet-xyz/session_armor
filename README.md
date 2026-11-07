@@ -8,7 +8,7 @@
 
 **Framework-neutral session-assurance contracts with an optional Django adapter for session integrity, privacy-aware audit logging, and configurable request gates.**
 
-Part of the [Tunet](https://tunet.xyz/engineering/) open-source libraries, alongside [AccessGate](https://github.com/Tunet-xyz/access_gate), [GeoCanon](https://github.com/Tunet-xyz/GeoCanon), and [SwapLayer](https://github.com/Tunet-xyz/swap_layer). See the [SessionArmor product page](https://tunet.xyz/engineering/session-armor/) for the public capability overview.
+Part of the [Tunet](https://www.tunet.xyz/engineering/) open-source libraries, alongside [AccessGate](https://github.com/Tunet-xyz/access_gate), [GeoCanon](https://github.com/Tunet-xyz/GeoCanon), and [SwapLayer](https://github.com/Tunet-xyz/swap_layer). See the [SessionArmor product page](https://www.tunet.xyz/engineering/session-armor/) for the public capability overview.
 
 ## Version 1.0
 
@@ -18,7 +18,8 @@ The dependency-free core supports Python 3.10–3.13; the Django extra supports
 Django 4.2–5.2 (`<6`). Use a Django version still receiving upstream security
 updates. The `session-armor.assurance/v1` schema remains unchanged.
 
-Upgrading from 0.5 or 0.6 keeps the explicit imports below. Older integrations
+Upgrading from 0.5 keeps the explicit imports below (0.6.0 was never published
+to PyPI; its changes ship in 1.0.0). Older integrations
 must move middleware imports to `session_armor.adapters.django`, return
 `GateDecision` from gate hooks, and use the `SESSION_ARMOR_*` settings documented
 here. See the [changelog](https://github.com/Tunet-xyz/session_armor/blob/main/CHANGELOG.md) and [release procedure](https://github.com/Tunet-xyz/session_armor/blob/main/docs/RELEASE.md).
@@ -28,8 +29,9 @@ here. See the [changelog](https://github.com/Tunet-xyz/session_armor/blob/main/C
 ## What It Does
 
 The dependency-free core provides immutable assurance evidence and typed gate
-decisions. The optional Django adapter provides three drop-in middleware classes
-that harden an application's session layer:
+decisions. The optional Django adapter provides two drop-in middleware classes
+and a gate base class that you subclass, which together harden an application's
+session layer:
 
 | Middleware | Purpose |
 |-----------|---------|
@@ -128,6 +130,7 @@ class ComplianceGate(GateMiddleware):
     cache_ttl_setting = 'COMPLIANCE_CACHE_TTL'
     default_cache_ttl = 3600
     requires_trusted_session = True
+    exempt_paths = ('/accept-terms/',)  # the page on_reject() redirects to
 
     def check(self, request) -> GateDecision:
         if user_accepted_current_terms(request):
@@ -137,6 +140,11 @@ class ComplianceGate(GateMiddleware):
     def on_reject(self, request, decision):
         return redirect('/accept-terms/')
 ```
+
+Exempt the page that `on_reject()` redirects to, or a rejected user is sent
+back to it in a loop. The view that records acceptance should call
+`ComplianceGate.invalidate(request)`; otherwise the cached rejection holds for
+the full TTL.
 
 A gate with `requires_trusted_session = True` rejects every path that
 `SessionSecurityMiddleware` exempts, unless its own `exempt_paths` repeat them.
@@ -204,8 +212,9 @@ class MySessionSecurity(SessionSecurityMiddleware):
     last_active_resolution = 60  # only rewrite last-active timestamp every 60s
 
     def get_critical_claims(self, user):
-        # Auth0 / OIDC claims that must not change mid-session
-        return [user.sub, user.organization_uuid, user.platform]
+        # Auth0 / OIDC claims that must not change mid-session; values must be
+        # strings, so convert UUIDs and other types explicitly.
+        return [str(user.sub), str(user.organization_uuid), str(user.platform)]
 
     def get_login_url(self, request):
         platform = getattr(request.user, 'platform', '')
@@ -274,15 +283,24 @@ class MyAudit(AuditMiddleware):
 
     def get_user_identity(self, request):
         return {
-            'uid': request.user.sub,
-            'platform': request.user.platform,
-            'org': request.user.organization_uuid,
+            'uid': str(request.user.sub),
+            'platform': str(request.user.platform),
+            'org': str(request.user.organization_uuid),
         }
 ```
+
+Audit values must be strings, finite numbers, booleans, `None`, or lists and
+mappings of those; convert UUIDs and other objects with `str()`, or the event
+fails with `AuditEmissionError`.
 
 `path` is reserved evidence that `before_log()` cannot change. When URL paths
 carry secrets (invitation tokens, one-time codes), override
 `get_audit_path(request)` to return a redacted path instead.
+
+Events go to the `security.audit` logger: 5xx at `ERROR`, 401/403 at
+`WARNING`, other 4xx at `INFO`, and everything else at `DEBUG`. Configure that
+logger in `LOGGING` (or override `get_log_level()`); under Django's default
+logging, successful requests produce no visible audit line.
 
 ---
 
@@ -294,14 +312,18 @@ git clone https://github.com/Tunet-xyz/session_armor.git
 cd session_armor
 pip install -e ".[dev]"
 
-# Run tests
-pytest
+# Run tests (as CI does, with the branch-coverage gate)
+pytest --cov=session_armor --cov-branch --cov-report=term-missing
 
 # Lint
-ruff check src/session_armor tests
+ruff check src tests tools
 
 # Type check
-mypy src/session_armor
+mypy src/session_armor --ignore-missing-imports
+
+# Security checks
+bandit -r src/session_armor tools
+pip-audit
 ```
 
 
@@ -315,13 +337,12 @@ From a checkout, run the dependency-free contract server with `python mcp/server
 sessionarmor-mcp
 ```
 
-This starts a local documentation and draft-generation server using the caller's
-own environment. It does not connect to Tunet's agents, paid accounts, release
-credentials, or production systems, and no hosted maintainer agent is included.
+This starts a local documentation and draft-generation server over stdio. It
+makes no network connections and needs no credentials or account.
 
 ## Contributing and releases
 
-See [CONTRIBUTING.md](https://github.com/Tunet-xyz/session_armor/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution process and [VERSIONING.md](https://github.com/Tunet-xyz/session_armor/blob/main/VERSIONING.md) for the shared SemVer and release policy. Public PRs and agent mentions cannot authorize maintainer work; repository jobs require owner dispatch. Vendor-hosted GitHub app access is controlled separately in the owner's account settings.
+See [CONTRIBUTING.md](https://github.com/Tunet-xyz/session_armor/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution process and [VERSIONING.md](https://github.com/Tunet-xyz/session_armor/blob/main/VERSIONING.md) for the shared SemVer and release policy. Report vulnerabilities privately as described in [SECURITY.md](https://github.com/Tunet-xyz/session_armor/blob/main/SECURITY.md). CI workflows run only when the maintainer starts them, so include your local test results in pull requests.
 
 ## License
 
