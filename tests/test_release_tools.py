@@ -37,22 +37,27 @@ def test_release_build_tools_are_hash_locked() -> None:
         assert re.search(rf"^{re.escape(pin)} \\\n    --hash=sha256:[0-9a-f]{{64}}", lock, re.M), pin
 
 
-def test_release_build_uses_the_locked_backend() -> None:
+@pytest.mark.parametrize("workflow_name", ["publish.yaml", "assurance.yaml"])
+def test_release_builds_are_hash_locked_and_validate_the_sbom(workflow_name: str) -> None:
     root = Path(__file__).parents[1]
     if not (root / ".github").is_dir():
         pytest.skip("the release workflows are not shipped in the sdist")
-    workflow = (root / ".github" / "workflows" / "publish.yaml").read_text()
+    workflow = (root / ".github" / "workflows" / workflow_name).read_text()
     builds = re.findall(r"python -m build\b[^\n]*", workflow)
     lock = (root / "requirements" / "build.txt").read_text()
     pyproject = (root / "pyproject.toml").read_text()
     requires = re.search(r"^requires = \[(.*)\]$", pyproject, re.M)
     backend = re.findall(r'"([A-Za-z0-9_.-]+)', requires.group(1)) if requires else []
+    sboms = re.findall(r"tools\.generate_sbom\b[^\n]*--output (\S+)", workflow)
 
     # An isolated build installs pyproject's build requirements from PyPI, bypassing the lock.
+    assert "pip install --require-hashes -r requirements/build.txt" in workflow
+    assert "requirements/build.in" not in workflow
     assert builds and all("--no-isolation" in command for command in builds), builds
     assert backend
-    for name in backend:
+    for name in [*backend, "spdx-tools"]:
         assert re.search(rf"^{re.escape(name)}==\S+ \\\n    --hash=sha256:", lock, re.M), name
+    assert sboms and all(f"pyspdxtools -i {path}" in workflow for path in sboms), sboms
 
 
 def test_security_policy_lists_the_current_release_line() -> None:
