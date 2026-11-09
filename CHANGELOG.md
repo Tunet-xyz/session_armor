@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AccessGate's default assurance policy denies evidence without claim or
   continuity binding. The release procedure marks the archive checks the
   workflow does not do, and the Documentation URL points at the docs index.
+- README sections follow the order the Tunet libraries share: features, version
+  status, installation, quick start, usage, MCP server, scope and limitations,
+  documentation, development, contributing, and license, with PyPI, Python, and
+  license badges. The MCP section says its tools return guidance instead of
+  generating drafts, and the proxy comment says a non-zero depth also needs
+  CIDRs.
 
 ## [1.0.0] - 2026-11-05
 

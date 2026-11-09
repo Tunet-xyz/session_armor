@@ -1,37 +1,19 @@
 # SessionArmor
 
-[![Tests](https://github.com/Tunet-xyz/session_armor/actions/workflows/tests.yaml/badge.svg)](https://github.com/Tunet-xyz/session_armor/actions/workflows/tests.yaml)
-[![PyPI version](https://badge.fury.io/py/SessionArmor.svg)](https://pypi.org/project/SessionArmor/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Django 4.2-5.2](https://img.shields.io/badge/django-4.2--5.2-green.svg)](https://www.djangoproject.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/SessionArmor)](https://pypi.org/project/SessionArmor/)
+[![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)](https://pypi.org/project/SessionArmor/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/Tunet-xyz/session_armor/blob/main/LICENSE)
 
 **Framework-neutral session-assurance contracts with an optional Django adapter for session integrity, privacy-aware audit logging, and configurable request gates.**
 
 Part of the [Tunet](https://www.tunet.xyz/engineering/) open-source libraries, alongside [AccessGate](https://github.com/Tunet-xyz/access_gate), [GeoCanon](https://github.com/Tunet-xyz/geo_canon), and [SwapLayer](https://github.com/Tunet-xyz/swap_layer). See the [SessionArmor product page](https://www.tunet.xyz/engineering/session-armor/) for the public capability overview.
 
-## Version 1.0
-
-The documented assurance contracts, typed gate decisions, explicit Django adapter,
-extension hooks, and `sessionarmor-mcp` entry point form the stable 1.x API.
-The dependency-free core supports Python 3.10–3.13; the Django extra supports
-Django 4.2–5.2 (`<6`). Use a Django version still receiving upstream security
-updates. The `session-armor.assurance/v1` schema remains unchanged.
-
-Upgrading from 0.5 keeps the explicit imports below (0.6.0 was never published
-to PyPI; its changes ship in 1.0.0). Older integrations
-must move middleware imports to `session_armor.adapters.django`, return
-`GateDecision` from gate hooks, and use the `SESSION_ARMOR_*` settings documented
-here. See the [changelog](https://github.com/Tunet-xyz/session_armor/blob/main/CHANGELOG.md) and [release procedure](https://github.com/Tunet-xyz/session_armor/blob/main/docs/RELEASE.md).
-
----
-
-## What It Does
-
 The dependency-free core provides immutable assurance evidence and typed gate
 decisions. The optional Django adapter provides two drop-in middleware classes
 and a gate base class that you subclass, which together harden an application's
-session layer:
+session layer.
+
+## Features
 
 | Middleware | Purpose |
 |-----------|---------|
@@ -41,16 +23,20 @@ session layer:
 
 All three are **hookable** — override methods to customize behavior without touching internals.
 
-## References
+## Version 1.0
 
-- [NIST SP 800-53 AC-12](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) (Session Termination)
-- [NIST SP 800-53 SC-23](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) (Session Authenticity)
-- [NIST SP 800-53 AU-3/AU-12](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) (Audit Content/Generation)
-- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+The documented assurance contracts, typed gate decisions, explicit Django adapter,
+extension hooks, and `sessionarmor-mcp` entry point form the stable 1.x API.
+The dependency-free core supports Python 3.10–3.13; the Django extra supports
+Django 4.2–5.2 (`<6`). Use a Django version still receiving upstream security
+updates. The `session-armor.assurance/v1` schema remains unchanged. SessionArmor 1.0.0
+is published on [PyPI](https://pypi.org/project/SessionArmor/).
 
-SessionArmor adds controls around an existing Django authentication and session setup; it does not replace HTTPS, secure cookie settings, CSRF protection, authorization, MFA, or incident response. Fingerprint binding is a replay signal rather than proof of device identity and can require tuning for mobile or privacy-network traffic. See the [security model](https://github.com/Tunet-xyz/session_armor/blob/main/docs/security-model.md) for deployment assumptions, limitations, and a release checklist.
-
----
+Upgrading from 0.5 keeps the explicit imports below (0.6.0 was never published
+to PyPI; its changes ship in 1.0.0). Older integrations
+must move middleware imports to `session_armor.adapters.django`, return
+`GateDecision` from gate hooks, and use the `SESSION_ARMOR_*` settings documented
+here. See the [changelog](https://github.com/Tunet-xyz/session_armor/blob/main/CHANGELOG.md) and [release procedure](https://github.com/Tunet-xyz/session_armor/blob/main/docs/RELEASE.md).
 
 ## Installation
 
@@ -65,7 +51,7 @@ middleware integration is required:
 pip install "SessionArmor[django]"
 ```
 
-## Quick Start
+## Quick start
 
 ```python
 # settings.py
@@ -92,7 +78,7 @@ SESSION_ARMOR_STATE_KEY = SECRET_KEY
 SESSION_ARMOR_STATE_KEY_FALLBACKS = None  # None: follow SECRET_KEY_FALLBACKS
 SESSION_ARMOR_AUDIT_PEPPER = SECRET_KEY
 
-# Forwarded headers are ignored unless both values are configured.
+# Forwarded headers are ignored at depth 0; a non-zero depth also needs CIDRs.
 SESSION_ARMOR_TRUSTED_PROXY_DEPTH = 0
 SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ()
 ```
@@ -118,7 +104,7 @@ SESSION_ARMOR_TRUSTED_PROXY_CIDRS = ()
 > networks are rejected. Entries left of the client are never read, and
 > forwarded entries may carry a port.
 
-## Building a Gate
+## Building a gate
 
 ```python
 from session_armor import GateDecision
@@ -202,7 +188,7 @@ class ComplianceGate(GateMiddleware):
 > `get_state_version()`, or set `sticky_pass_max_age` (seconds) to cap how long
 > a sticky pass may be reused before a forced re-check.
 
-## Customizing Session Security
+## Customizing session security
 
 ```python
 from session_armor.adapters.django import SessionSecurityMiddleware
@@ -273,7 +259,7 @@ decision, call `refresh_assurance(request)` just before deciding: it
 re-verifies the session and re-issues the evidence, and can withdraw trust but
 never grant it. See [`docs/ACCESSGATE_INTEGRATION.md`](https://github.com/Tunet-xyz/session_armor/blob/main/docs/ACCESSGATE_INTEGRATION.md).
 
-## Customizing Audit Logging
+## Customizing audit logging
 
 ```python
 from session_armor.adapters.django import AuditMiddleware
@@ -302,48 +288,73 @@ Events go to the `security.audit` logger: 5xx at `ERROR`, 401/403 at
 logger in `LOGGING` (or override `get_log_level()`); under Django's default
 logging, successful requests produce no visible audit line.
 
----
+## MCP server
 
-## Development
-
-```bash
-# Clone and install
-git clone https://github.com/Tunet-xyz/session_armor.git
-cd session_armor
-pip install -e ".[dev]"
-
-# Run tests (as CI does, with the branch-coverage gate)
-pytest --cov=session_armor --cov-branch --cov-report=term-missing
-
-# Lint
-ruff check src tests tools
-
-# Type check
-mypy src/session_armor --ignore-missing-imports
-
-# Security checks
-bandit -r src/session_armor tools
-pip-audit
-```
-
-
-## Public Agent MCP Contract
-
-SessionArmor includes a public agent-operability contract in [`mcp/`](https://github.com/Tunet-xyz/session_armor/tree/main/mcp/). It describes how external agents can safely help with middleware ordering, security settings, audit customization, gate design, browser-visible docs, and rollout planning without requiring source-code access or production session data.
-
-From a checkout, run the dependency-free contract server with `python mcp/server.py`. After installation, agents can use the packaged stdio command:
+SessionArmor includes a local stdio MCP server:
 
 ```bash
 sessionarmor-mcp
 ```
 
-This starts a local documentation and draft-generation server over stdio. It
-makes no network connections and needs no credentials or account.
+From a source checkout, run `python mcp/server.py`. Its tools return guidance
+for middleware ordering, security settings, audit customization, gate design,
+and rollout planning; the calling agent writes any configuration, for a
+person to review. It runs locally
+under the caller's control, makes no network connections, and needs no
+credentials or account. See [mcp/README.md](https://github.com/Tunet-xyz/session_armor/blob/main/mcp/README.md) for its
+methods, tools, and limits.
+
+## Scope and limitations
+
+SessionArmor adds controls around an existing Django authentication and session setup; it does not replace HTTPS, secure cookie settings, CSRF protection, authorization, MFA, or incident response. Fingerprint binding is a replay signal rather than proof of device identity and can require tuning for mobile or privacy-network traffic. See the [security model](https://github.com/Tunet-xyz/session_armor/blob/main/docs/security-model.md) for deployment assumptions, limitations, and a release checklist.
+
+Independent design review and targeted penetration testing remain appropriate
+before high-impact deployment; the
+[security assurance case](https://github.com/Tunet-xyz/session_armor/blob/main/docs/SECURITY_ASSURANCE.md) lists the evidence the
+repository provides. The controls map to these references:
+
+- [NIST SP 800-53 AC-12](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) (Session Termination)
+- [NIST SP 800-53 SC-23](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) (Session Authenticity)
+- [NIST SP 800-53 AU-3/AU-12](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) (Audit Content/Generation)
+- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+
+## Documentation
+
+- [Documentation index](https://github.com/Tunet-xyz/session_armor/blob/main/docs/README.md): guides, security
+  documents, and the release procedure.
+- Guides: [security model](https://github.com/Tunet-xyz/session_armor/blob/main/docs/security-model.md), [AccessGate integration](https://github.com/Tunet-xyz/session_armor/blob/main/docs/ACCESSGATE_INTEGRATION.md), [MCP server](https://github.com/Tunet-xyz/session_armor/blob/main/mcp/README.md).
+- Security: [security policy](https://github.com/Tunet-xyz/session_armor/blob/main/SECURITY.md),
+  [threat model](https://github.com/Tunet-xyz/session_armor/blob/main/docs/THREAT_MODEL.md),
+  [security assurance](https://github.com/Tunet-xyz/session_armor/blob/main/docs/SECURITY_ASSURANCE.md),
+  [audit scope](https://github.com/Tunet-xyz/session_armor/blob/main/docs/AUDIT_SCOPE.md), and
+  [secure development](https://github.com/Tunet-xyz/session_armor/blob/main/docs/SECURE_DEVELOPMENT.md).
+- [Changelog](https://github.com/Tunet-xyz/session_armor/blob/main/CHANGELOG.md), including which versions reached PyPI.
+
+## Development
+
+```bash
+git clone https://github.com/Tunet-xyz/session_armor.git
+cd session_armor
+python -m pip install -e ".[dev]"
+python -m ruff check src tests tools
+python -m mypy src/session_armor --ignore-missing-imports
+python -m bandit -r src/session_armor tools
+python -m pytest --cov=session_armor --cov-branch --cov-report=term-missing
+```
+
+These are the checks the manual CI workflows run. The
+[security assurance case](https://github.com/Tunet-xyz/session_armor/blob/main/docs/SECURITY_ASSURANCE.md) lists the full
+evidence commands, including the dependency audit.
 
 ## Contributing and releases
 
-See [CONTRIBUTING.md](https://github.com/Tunet-xyz/session_armor/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution process and [VERSIONING.md](https://github.com/Tunet-xyz/session_armor/blob/main/VERSIONING.md) for the shared SemVer and release policy. Report vulnerabilities privately as described in [SECURITY.md](https://github.com/Tunet-xyz/session_armor/blob/main/SECURITY.md). CI workflows run only when the maintainer starts them, so include your local test results in pull requests.
+See [CONTRIBUTING.md](https://github.com/Tunet-xyz/session_armor/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution
+process and [VERSIONING.md](https://github.com/Tunet-xyz/session_armor/blob/main/VERSIONING.md) for the shared SemVer and
+release policy. Report vulnerabilities privately as described in
+[SECURITY.md](https://github.com/Tunet-xyz/session_armor/blob/main/SECURITY.md). CI workflows run only when the maintainer
+starts them, so include your local test results in pull requests. Everyone
+taking part follows the [code of conduct](https://github.com/Tunet-xyz/session_armor/blob/main/CODE_OF_CONDUCT.md).
 
 ## License
 
-MIT — Copyright (c) 2024-2026 Tunet Ltd. See [LICENSE](https://github.com/Tunet-xyz/session_armor/blob/main/LICENSE).
+MIT. Copyright (c) 2024-2026 Tunet Ltd. See [LICENSE](https://github.com/Tunet-xyz/session_armor/blob/main/LICENSE).
