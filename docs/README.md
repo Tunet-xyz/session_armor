@@ -8,7 +8,7 @@ audit customization. These documents go further.
 | Guide | Contents |
 | --- | --- |
 | [Security model](security-model.md) | What SessionArmor mitigates, deployment assumptions, limitations, defaults, and the rollout checklist |
-| [AccessGate integration](ACCESSGATE_INTEGRATION.md) | Passing session-assurance evidence to AccessGate, long requests, schema compatibility, and testing |
+| [AccessGate integration](access-gate-integration.md) | Passing session-assurance evidence to AccessGate, long requests, schema compatibility, and testing |
 | [MCP server](../mcp/README.md) | The local stdio server: methods, tools, limits, and boundaries |
 
 ## Security

@@ -257,7 +257,7 @@ The assurance policy is deny-only: a trusted session never grants a permission
 by itself. When slow work sits between SessionArmor and the authorization
 decision, call `refresh_assurance(request)` just before deciding: it
 re-verifies the session and re-issues the evidence, and can withdraw trust but
-never grant it. See the [AccessGate integration guide](https://github.com/Tunet-xyz/session_armor/blob/main/docs/ACCESSGATE_INTEGRATION.md).
+never grant it. See the [AccessGate integration guide](https://github.com/Tunet-xyz/session_armor/blob/main/docs/access-gate-integration.md).
 
 ## Customizing audit logging
 
@@ -322,7 +322,7 @@ repository provides. The controls map to these references:
 
 - [Documentation index](https://github.com/Tunet-xyz/session_armor/blob/main/docs/README.md): guides, security
   documents, and the release procedure.
-- Guides: [security model](https://github.com/Tunet-xyz/session_armor/blob/main/docs/security-model.md), [AccessGate integration](https://github.com/Tunet-xyz/session_armor/blob/main/docs/ACCESSGATE_INTEGRATION.md), [MCP server](https://github.com/Tunet-xyz/session_armor/blob/main/mcp/README.md).
+- Guides: [security model](https://github.com/Tunet-xyz/session_armor/blob/main/docs/security-model.md), [AccessGate integration](https://github.com/Tunet-xyz/session_armor/blob/main/docs/access-gate-integration.md), [MCP server](https://github.com/Tunet-xyz/session_armor/blob/main/mcp/README.md).
 - Security: [security policy](https://github.com/Tunet-xyz/session_armor/blob/main/SECURITY.md),
   [threat model](https://github.com/Tunet-xyz/session_armor/blob/main/docs/THREAT_MODEL.md),
   [security assurance](https://github.com/Tunet-xyz/session_armor/blob/main/docs/SECURITY_ASSURANCE.md),

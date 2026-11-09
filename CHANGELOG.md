@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CIDRs.
 - The README links GeoCanon at its renamed repository, `Tunet-xyz/geo_canon`, and
   calls the owner the owner; links use descriptive labels.
+- The AccessGate integration guide moved to `docs/access-gate-integration.md`,
+  matching the other kebab-case guide names.
 
 ## [1.0.0] - 2026-11-05
 
