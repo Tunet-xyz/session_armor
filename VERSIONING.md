@@ -1,6 +1,6 @@
 # Versioning and releases
 
-SessionArmor, AccessGate, GeoCanon, and SwapLayer share this policy. Each package
+AccessGate, GeoCanon, SessionArmor, and SwapLayer share this policy. Each package
 has its own version and release cadence; a change in one does not force releases
 of the others. The first stable release of each is **1.0.0**.
 
@@ -78,4 +78,4 @@ version; yank an unsafe version when appropriate and explain the replacement.
 
 Repository write access, review approval, agent execution, and publishing are
 separate permissions. Public source and a public MCP contract grant none of the
-maintainer's credentials, agent accounts, paid execution, or production access.
+owner's credentials, agent accounts, paid execution, or production access.

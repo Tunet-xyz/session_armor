@@ -6,7 +6,7 @@ middleware, settings, and extension points, and to get guidance for security
 settings, gates, and rollout plans. The server runs locally under the caller's
 control, makes no network connections, and needs no credentials or account.
 There is no hosted SessionArmor MCP service, and nothing here gives access to
-the maintainer's agents, accounts, or infrastructure.
+the owner's agents, accounts, or infrastructure.
 
 ## Run
 

@@ -257,7 +257,7 @@ The assurance policy is deny-only: a trusted session never grants a permission
 by itself. When slow work sits between SessionArmor and the authorization
 decision, call `refresh_assurance(request)` just before deciding: it
 re-verifies the session and re-issues the evidence, and can withdraw trust but
-never grant it. See [`docs/ACCESSGATE_INTEGRATION.md`](https://github.com/Tunet-xyz/session_armor/blob/main/docs/ACCESSGATE_INTEGRATION.md).
+never grant it. See the [AccessGate integration guide](https://github.com/Tunet-xyz/session_armor/blob/main/docs/ACCESSGATE_INTEGRATION.md).
 
 ## Customizing audit logging
 
@@ -351,7 +351,7 @@ evidence commands, including the dependency audit.
 See [CONTRIBUTING.md](https://github.com/Tunet-xyz/session_armor/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution
 process and [VERSIONING.md](https://github.com/Tunet-xyz/session_armor/blob/main/VERSIONING.md) for the shared SemVer and
 release policy. Report vulnerabilities privately as described in
-[SECURITY.md](https://github.com/Tunet-xyz/session_armor/blob/main/SECURITY.md). CI workflows run only when the maintainer
+[SECURITY.md](https://github.com/Tunet-xyz/session_armor/blob/main/SECURITY.md). CI workflows run only when the owner
 starts them, so include your local test results in pull requests. Everyone
 taking part follows the [code of conduct](https://github.com/Tunet-xyz/session_armor/blob/main/CODE_OF_CONDUCT.md).
 
