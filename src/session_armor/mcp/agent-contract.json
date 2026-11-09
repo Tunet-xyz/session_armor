@@ -6,7 +6,7 @@
     "packageName": "SessionArmor",
     "status": "production",
     "license": "MIT",
-    "purpose": "Framework-neutral session-assurance contracts with optional Django middleware for session security, privacy-preserving audit logging, and configurable request gates.",
+    "purpose": "Framework-neutral session-assurance contracts with an optional Django adapter for session integrity, privacy-aware audit logging, and configurable request gates.",
     "audiences": ["python-developer", "django-developer", "security-engineer", "customer-agent", "compliance-agent", "maintainer-agent"]
   },
   "server": {

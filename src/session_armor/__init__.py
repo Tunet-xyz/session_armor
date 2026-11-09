@@ -1,4 +1,4 @@
-"""SessionArmor's framework-neutral session-assurance contracts."""
+"""Framework-neutral session-assurance contracts with an optional Django adapter for session integrity, privacy-aware audit logging, and configurable request gates."""
 
 from .assurance import (
     ASSURANCE_CONTEXT_KEY,

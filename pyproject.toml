@@ -12,7 +12,7 @@ session_armor = ["py.typed", "mcp/*.json"]
 [project]
 name = "SessionArmor"
 version = "1.0.0"
-description = "Framework-neutral session-assurance contracts with optional security adapters."
+description = "Framework-neutral session-assurance contracts with an optional Django adapter for session integrity, privacy-aware audit logging, and configurable request gates."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
