@@ -8,7 +8,7 @@
 
 **Framework-neutral session-assurance contracts with an optional Django adapter for session integrity, privacy-aware audit logging, and configurable request gates.**
 
-Part of the [Tunet](https://www.tunet.xyz/engineering/) open-source libraries, alongside [AccessGate](https://github.com/Tunet-xyz/access_gate), [GeoCanon](https://github.com/Tunet-xyz/GeoCanon), and [SwapLayer](https://github.com/Tunet-xyz/swap_layer). See the [SessionArmor product page](https://www.tunet.xyz/engineering/session-armor/) for the public capability overview.
+Part of the [Tunet](https://www.tunet.xyz/engineering/) open-source libraries, alongside [AccessGate](https://github.com/Tunet-xyz/access_gate), [GeoCanon](https://github.com/Tunet-xyz/geo_canon), and [SwapLayer](https://github.com/Tunet-xyz/swap_layer). See the [SessionArmor product page](https://www.tunet.xyz/engineering/session-armor/) for the public capability overview.
 
 ## Version 1.0
 
