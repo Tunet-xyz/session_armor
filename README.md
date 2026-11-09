@@ -357,4 +357,4 @@ taking part follows the [code of conduct](https://github.com/Tunet-xyz/session_a
 
 ## License
 
-MIT. Copyright (c) 2024-2026 Tunet Ltd. See [LICENSE](https://github.com/Tunet-xyz/session_armor/blob/main/LICENSE).
+MIT. Copyright (c) 2026 Tunet Ltd. See [LICENSE](https://github.com/Tunet-xyz/session_armor/blob/main/LICENSE).

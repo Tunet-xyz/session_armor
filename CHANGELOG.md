@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   calls the owner the owner; links use descriptive labels.
 - The AccessGate integration guide moved to `docs/access-gate-integration.md`,
   matching the other kebab-case guide names.
+- The copyright year in LICENSE and the README is 2026, the year the project
+  started.
 
 ## [1.0.0] - 2026-11-05
 
