@@ -249,6 +249,25 @@ def test_stdio_server_decodes_utf8_whatever_the_locale_encoding() -> None:
         assert responses[2]["result"]["serverInfo"]["version"] == __version__
 
 
+def test_module_entry_point_serves_the_public_contract() -> None:
+    initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "session_armor.mcp"],
+        cwd=ROOT,
+        input=json.dumps(initialize) + "\n",
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=20,
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+    )
+    server_info = json.loads(completed.stdout)["result"]["serverInfo"]
+
+    assert server_info["name"] == "session-armor-public-contract-mcp"
+    assert server_info["version"] == __version__
+
+
 def test_parser_rejects_text_that_is_not_utf8() -> None:
     with pytest.raises(ValueError, match="valid UTF-8"):
         parse_message('{"jsonrpc":"2.0","id":1,"method":"\udcff"}')
