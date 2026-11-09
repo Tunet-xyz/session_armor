@@ -17,7 +17,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["django", "middleware", "security", "session", "audit", "gates", "nist", "owasp"]
+keywords = ["audit", "django", "gates", "mcp", "middleware", "nist", "owasp", "security", "session"]
 authors = [
   { name = "Tunet Ltd", email = "alex@tunet.xyz" },
 ]
@@ -25,9 +25,9 @@ classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Framework :: Django",
   "Framework :: Django :: 4.2",
-  "Framework :: Django :: 5.0",
-  "Framework :: Django :: 5.1",
   "Framework :: Django :: 5.2",
+  "Framework :: Django :: 6.1",
+  "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -35,14 +35,14 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Topic :: Security",
   "Topic :: Software Development :: Libraries :: Python Modules",
-  "Intended Audience :: Developers",
+  "Typing :: Typed",
 ]
 dependencies = []
 
 [project.optional-dependencies]
-django = ["Django>=4.2,<6"]
+django = ["Django>=4.2,<7"]
 dev = [
-  "Django>=4.2,<6",
+  "Django>=4.2,<7",
   "pytest>=8.0",
   "pytest-django>=4.5",
   "pytest-cov>=4.0.0",
@@ -51,7 +51,7 @@ dev = [
   "django-stubs>=4.2.0",
   "bandit>=1.7",
   "pip-audit>=2.7",
-  # Runs tests/test_accessgate_bridge.py: real evidence through AccessGate.
+  # Runs tests/test_access_gate_bridge.py: real evidence through AccessGate.
   "AccessGate>=0.3.0a1,<2",
 ]
 
@@ -75,6 +75,8 @@ pythonpath = [".", "src"]
 
 [tool.mypy]
 python_version = "3.10"
+packages = ["session_armor"]
+mypy_path = "src"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
@@ -109,7 +111,7 @@ ignore = [
 known-first-party = ["session_armor"]
 
 [tool.coverage.run]
-source = ["src/session_armor"]
+source = ["session_armor"]
 branch = true
 omit = ["*/tests/*", "*/__pycache__/*"]
 
