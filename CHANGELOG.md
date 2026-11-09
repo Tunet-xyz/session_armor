@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (critical fixes within 7 days instead of 30), package scope, and secure-use
   guidance.
 - `VERSIONING.md` is worded for outside readers; its rules are unchanged.
+- Documentation has the layout shared by the Tunet libraries: a docs index, and
+  the same sections in the release procedure, threat model, assurance case,
+  audit scope, secure-development notes, and MCP README. The security model and
+  AccessGate guide now say that a state version alone does not age out a sticky
+  pass, that a non-zero proxy depth needs the trusted CIDRs, and that
+  AccessGate's default assurance policy denies evidence without claim or
+  continuity binding. The release procedure marks the archive checks the
+  workflow does not do, and the Documentation URL points at the docs index.
 
 ## [1.0.0] - 2026-11-05
 

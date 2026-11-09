@@ -60,6 +60,13 @@ requests. Tests should include missing evidence, wrong subject, stale evidence,
 disabled claim binding, no continuity factors, malformed serializers, and a
 valid session that still lacks application permission.
 
+By default `SessionAssurancePolicy` also requires continuity binding and claim
+binding (`require_binding=True`, `require_claim_binding=True`). Evidence from a
+deployment with no continuity factors, or with
+`SESSION_ARMOR_DETECT_CLAIM_DRIFT = False` (evidence `claims_bound` is then
+false), is denied with `binding_required` or `claim_binding_required` on every
+request. Relax those arguments only as a reviewed, deliberate choice.
+
 Evidence timestamps never exceed `verified_at`. State written by an instance
 whose clock runs ahead (within `SESSION_ARMOR_CLOCK_SKEW`) is reported at the
 verifying instance's time, so `SessionAssurancePolicy(clock_skew=...)` does not

@@ -58,7 +58,7 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/Tunet-xyz/session_armor"
 Product = "https://www.tunet.xyz/engineering/session-armor/"
-Documentation = "https://github.com/Tunet-xyz/session_armor#readme"
+Documentation = "https://github.com/Tunet-xyz/session_armor/blob/main/docs/README.md"
 Repository = "https://github.com/Tunet-xyz/session_armor"
 Issues = "https://github.com/Tunet-xyz/session_armor/issues"
 Changelog = "https://github.com/Tunet-xyz/session_armor/blob/main/CHANGELOG.md"

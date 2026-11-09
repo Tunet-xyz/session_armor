@@ -9,7 +9,7 @@ SessionArmor adds reviewable session-integrity, audit, and request-gate controls
 - Selected authenticated claims changing without the session being re-established.
 - Missing or unsafe authenticated-request audit events, including control-character log injection and reversible IPv4 pseudonyms.
 - Compliance, onboarding, maintenance, and similar workflow checks being implemented inconsistently across views.
-- Sticky gate passes remaining valid indefinitely when `sticky_pass_max_age` or a state version is configured.
+- Sticky gate passes remaining valid indefinitely when `sticky_pass_max_age` is set. A state version alone does not age a pass out; it forces a re-check only when the version changes.
 
 ## Deployment assumptions
 
@@ -17,7 +17,7 @@ SessionArmor assumes the application already uses:
 
 - HTTPS, secure cookies, CSRF protection, and an appropriately configured Django session backend.
 - Authentication and authorization checks suited to the application.
-- A correct `SESSION_ARMOR_TRUSTED_PROXY_DEPTH` for the real reverse-proxy chain.
+- A correct `SESSION_ARMOR_TRUSTED_PROXY_DEPTH` for the real reverse-proxy chain, with `SESSION_ARMOR_TRUSTED_PROXY_CIDRS` listing those proxies' networks; a non-zero depth without the CIDRs is a configuration error.
 - A secret `SESSION_ARMOR_AUDIT_PEPPER`, preferably separate from `SECRET_KEY` when independent rotation is useful.
 - Centralized logging with access controls, retention limits, and monitoring appropriate to the data recorded by custom hooks.
 
