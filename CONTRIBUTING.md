@@ -1,7 +1,9 @@
 # Contributing to SessionArmor
 
-Issues and pull requests are welcome. For a vulnerability, use the private
-reporting route in [SECURITY.md](SECURITY.md) instead of a public issue.
+Issues and pull requests are welcome; the issue templates ask for the details
+we need. For a vulnerability, use the private reporting route in
+[SECURITY.md](SECURITY.md) instead of a public issue. Everyone taking part is
+expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 Fork the repository and make your change on a branch of your fork. Keep it
 focused, explain its behavior and compatibility impact, update the relevant

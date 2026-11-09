@@ -7,12 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A Contributor Covenant 2.1 code of conduct, and issue templates for bug
+  reports and feature requests that send vulnerability reports to private
+  reporting.
+
 ### Changed
 
 - The Product URL points at `www.tunet.xyz`, which serves the product page.
 - README examples corrected: the gate example exempts the page its rejection
   redirects to, critical claims and audit identity values are converted to
   strings, and the audit logger's name and levels are documented.
+- The security policy uses the layout shared by the Tunet libraries: private
+  reporting through the Security tab or by email, one set of response targets
+  (critical fixes within 7 days instead of 30), package scope, and secure-use
+  guidance.
+- `VERSIONING.md` is worded for outside readers; its rules are unchanged.
 
 ## [1.0.0] - 2026-11-05
 
@@ -220,3 +231,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SESSION_ARMOR_TRUSTED_PROXY_DEPTH` setting to prevent X-Forwarded-For spoofing.
 - `fail_open=False` as defense-grade default on GateMiddleware.
 - CI/CD with GitHub Actions (tests on Python 3.10–3.13, PyPI publishing via trusted publishing).
+
+[Unreleased]: https://github.com/Tunet-xyz/session_armor/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Tunet-xyz/session_armor/releases/tag/v1.0.0
+[0.5.0]: https://github.com/Tunet-xyz/session_armor/releases/tag/v0.5.0
+[0.1.0]: https://pypi.org/project/SessionArmor/0.1.0/
