@@ -14,6 +14,7 @@ After installing SessionArmor:
 
 ```bash
 sessionarmor-mcp
+python -m session_armor.mcp     # the same server
 ```
 
 From a source checkout:

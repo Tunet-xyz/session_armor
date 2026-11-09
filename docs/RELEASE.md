@@ -19,8 +19,9 @@ start one.
 
 ## 2. Verify
 
-Run the checks the workflows run, across the Python 3.10–3.13 and Django
-4.2/5.2 matrix, plus the consumer integration suites:
+Run the checks the workflows run: Python 3.10–3.13 with Django 5.2, Python
+3.12–3.13 with Django 6.1, and Django 4.2 at the declared floors, plus the
+consumer integration suites:
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -55,8 +56,8 @@ and smoke-test the exact wheel in a clean environment.
 2. The owner starts `publish.yaml` from `main` or that tag; it stops on any
    other ref, including a tag that does not match the package version. Dispatch
    from the tag for a release. The workflow verifies the source, builds once
-   with the hash-locked tools, runs `twine check`, and writes an SBOM and
-   `SHA256SUMS` (with `dist/packages/` paths).
+   with the hash-locked tools, runs `twine check`, writes an SBOM that
+   `pyspdxtools` validates, and writes `SHA256SUMS` (with `dist/` paths).
 3. The upload job runs in the `pypi` environment, which only `main` and `v*`
    tags may use and which needs the owner's approval; administrators cannot
    bypass it, and agents cannot give that approval. PyPI Trusted Publishing

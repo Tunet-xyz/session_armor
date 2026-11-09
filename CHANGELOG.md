@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Contributor Covenant 2.1 code of conduct, and issue templates for bug
   reports and feature requests that send vulnerability reports to private
   reporting.
+- `python -m session_armor.mcp` starts the MCP server, like the
+  `sessionarmor-mcp` command.
+- The Django extra allows Django 6 (`Django>=4.2,<7`); CI tests Django 4.2,
+  5.2, and 6.1.
 
 ### Changed
 
@@ -44,6 +48,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching the other kebab-case guide names.
 - The copyright year in LICENSE and the README is 2026, the year the project
   started.
+- The agent contract names the installed `sessionarmor-mcp` stdio server
+  instead of promising a hosted endpoint, adds the `cli` operation mode, quotes
+  the `SessionArmor[django]` install in `djangoAdapter`, and points `docsUrl` at
+  `docs/README.md`.
+- Package metadata drops the end-of-life Django 5.0 and 5.1 classifiers, adds
+  6.1 and `Typing :: Typed`, and its keywords add `mcp`; the sdist ships
+  `CODE_OF_CONDUCT.md` and the root `conftest.py`.
+- The assurance workflow builds from the hash-locked build requirements without
+  build isolation and validates the SPDX SBOM with `pyspdxtools`, as the
+  publish workflow now does too; both set `SOURCE_DATE_EPOCH` from the commit.
+  CodeQL uses the same codeql-action release as the Scorecard SARIF upload, and
+  workflow files end in `.yaml`.
 
 ## [1.0.0] - 2026-11-05
 

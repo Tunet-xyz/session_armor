@@ -28,7 +28,7 @@ All three are **hookable** — override methods to customize behavior without to
 The documented assurance contracts, typed gate decisions, explicit Django adapter,
 extension hooks, and `sessionarmor-mcp` entry point form the stable 1.x API.
 The dependency-free core supports Python 3.10–3.13; the Django extra supports
-Django 4.2–5.2 (`<6`). Use a Django version still receiving upstream security
+Django 4.2–6.x (`<7`). Use a Django version still receiving upstream security
 updates. The `session-armor.assurance/v1` schema remains unchanged. SessionArmor 1.0.0
 is published on [PyPI](https://pypi.org/project/SessionArmor/).
 
@@ -296,7 +296,8 @@ SessionArmor includes a local stdio MCP server:
 sessionarmor-mcp
 ```
 
-From a source checkout, run `python mcp/server.py`. Its tools return guidance
+`python -m session_armor.mcp` starts the same server. From a source checkout,
+run `python mcp/server.py`. Its tools return guidance
 for middleware ordering, security settings, audit customization, gate design,
 and rollout planning; the calling agent writes any configuration, for a
 person to review. It runs locally

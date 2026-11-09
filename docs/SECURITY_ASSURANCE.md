@@ -13,9 +13,9 @@ certification, and it does not establish that every deployment is secure.
 | Forwarded headers are trusted only through configured hops and CIDRs | `adapters/django/utils.py` | `tests/test_utils.py`, `tests/test_fail_closed_paths.py` |
 | Gate decisions are typed, identity-bound, and bounded in time | `adapters/django/gate.py`, `decisions.py` | `tests/test_gate.py` |
 | Audit events are structured and sanitized | `adapters/django/audit.py` | `tests/test_audit.py`, `tests/test_utils.py` |
-| Assurance evidence is versioned, subject-bound, and fresh | `assurance.py` | `tests/test_assurance.py`, `tests/test_accessgate_bridge.py` |
+| Assurance evidence is versioned, subject-bound, and fresh | `assurance.py` | `tests/test_assurance.py`, `tests/test_access_gate_bridge.py` |
 | The MCP server is bounded and read-only | `mcp/server.py` | `tests/test_mcp_server.py` |
-| Release metadata and build inputs agree | `pyproject.toml`, `requirements/`, release tools | `tests/test_release_tools.py`, `tests/test_package.py` |
+| Release metadata and build inputs agree | `pyproject.toml`, `requirements/`, release tools | `tests/test_release_tools.py`, `tests/test_release_identity.py` |
 
 ## Evidence commands
 
@@ -38,12 +38,12 @@ for the assessed commit.
 
 | Workflow | What it runs |
 | --- | --- |
-| `tests.yaml` | Ruff, mypy, and pytest with branch coverage on Python 3.10–3.13 with Django 4.2 and 5.2 |
+| `tests.yaml` | Ruff, mypy, and pytest with branch coverage on Python 3.10–3.13 with Django 5.2 and on Python 3.12–3.13 with Django 6.1, and Django 4.2 in the `minimum-dependencies` job |
 | `security.yaml` | Bandit and a dependency audit |
-| `assurance.yaml` | The adversarial, MCP, and release suites, a package build with an SBOM, and a `py.typed` check |
-| `codeql.yml` | CodeQL with the security-extended queries |
-| `scorecard.yml` | OpenSSF Scorecard |
-| `publish.yaml` | Verification, a hash-locked build with an SBOM and checksums, and PyPI publication with PEP 740 attestations |
+| `assurance.yaml` | The adversarial, MCP, and release suites, a hash-locked package build with a validated SBOM, and a `py.typed` check |
+| `codeql.yaml` | CodeQL with the security-extended queries |
+| `scorecard.yaml` | OpenSSF Scorecard |
+| `publish.yaml` | Verification, a hash-locked build with a validated SBOM and checksums, and PyPI publication with PEP 740 attestations |
 
 Keep the workflow URLs and logs, commit SHA, release checksums, SBOM, and PyPI
 provenance as the evidence bundle; workflow artifacts expire.
