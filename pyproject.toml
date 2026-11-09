@@ -40,17 +40,17 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-django = ["Django>=4.2,<7"]
+django = ["Django>=5.2.19,<7"]
 dev = [
-  "Django>=4.2,<7",
-  "pytest>=8.0",
-  "pytest-django>=4.5",
-  "pytest-cov>=4.0.0",
-  "ruff>=0.4",
-  "mypy>=1.0.0",
-  "django-stubs>=4.2.0",
-  "bandit>=1.7",
-  "pip-audit>=2.7",
+  "Django>=5.2.19,<7",
+  "pytest>=9.2.0",
+  "pytest-django>=4.14.0",
+  "pytest-cov>=7.1.0",
+  "ruff>=0.17.4",
+  "mypy>=2.4.1",
+  "django-stubs>=6.0.9",
+  "bandit>=1.9.4",
+  "pip-audit>=2.10.1",
   # Runs tests/test_access_gate_bridge.py: real evidence through AccessGate.
   "AccessGate>=0.3.0a1,<2",
 ]
