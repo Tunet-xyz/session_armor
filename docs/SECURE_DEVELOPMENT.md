@@ -42,7 +42,7 @@ hooks, gate skips, and sticky passes as security-sensitive review areas.
 
 ## Repository controls
 
-These GitHub settings were in place on 2026-11-09:
+These GitHub settings were in place on 2026-11-10:
 
 - `main` accepts pushes only from the owner and rejects force pushes and
   deletion. Other changes need a pull request approved by the code owner, with
@@ -55,8 +55,13 @@ These GitHub settings were in place on 2026-11-09:
 - Every workflow is manual (`workflow_dispatch`) and runs only when the owner
   starts it, with actions pinned to full commit SHAs and read-only default
   permissions. Pull requests, issues, and comments cannot start a workflow.
-- Secret scanning with push protection, Dependabot alerts and security updates,
-  and private vulnerability reporting are on.
+  GitHub's Dependabot jobs run weekly on their own and only open pull requests.
+- Workflows can use only the actions on the repository's allowlist, each at one
+  commit SHA. Before merging a Dependabot pull request that moves an action to a
+  new SHA, the owner adds the new SHA to the allowlist, together with any action
+  the new version itself uses.
+- Secret scanning with push protection, private vulnerability reporting, and
+  Dependabot alerts, security updates, and weekly version updates are on.
 
 Known gaps: the project has one maintainer, so no second person reviews the
 owner's changes, and the owner can push to `main` directly. No status checks

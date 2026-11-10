@@ -32,7 +32,8 @@ pip-audit
 pytest --cov=session_armor --cov-branch --cov-report=term-missing
 ```
 
-Record any check you could not run.
+The owner runs the manual test, security, assurance, CodeQL, and Scorecard
+workflows on the release commit. Record any check you could not run.
 
 ## 3. Build
 
@@ -42,6 +43,10 @@ export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
 python -m build --no-isolation
 python -m twine check dist/*
 ```
+
+`requirements/build.txt` is the hash-locked output of the `uv pip compile`
+command in its header. Dependabot leaves it and `requirements/build.in` alone,
+so to update the release tools, edit `build.in` and run that command again.
 
 The workflow does not inspect the archives, so do it yourself: the sdist must
 include the policy, documentation, tests, and build inputs, and the wheel the

@@ -3,9 +3,13 @@ updates:
   - package-ecosystem: pip
     directory: /
     schedule: {interval: weekly}
+    # Keep the declared floors (this is a library) and raise major updates in
+    # their own pull requests. The uv build lock and the floor pins change by hand.
+    versioning-strategy: widen
+    exclude-paths: [requirements/build.in, requirements/build.txt, requirements/minimum.txt]
     commit-message: {prefix: build, include: scope}
     groups:
-      python-dependencies: {patterns: ["*"]}
+      python-dependencies: {patterns: ["*"], update-types: [minor, patch]}
   - package-ecosystem: github-actions
     directory: /
     schedule: {interval: weekly}
