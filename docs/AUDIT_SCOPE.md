@@ -26,8 +26,8 @@ are not release evidence.
 Start with the [threat model](THREAT_MODEL.md), the
 [security model](security-model.md), and the
 [security assurance case](SECURITY_ASSURANCE.md). The highest-priority review
-surfaces are session termination and flush ordering, timestamp validation, HMAC
-framing and domain separation, proxy-chain traversal, gate cache identity and
-version binding, audit reserved-field handling, and the SessionArmor–AccessGate
-context bridge. Record tool versions, and distinguish automated findings from
-manual design conclusions.
+surfaces are session termination and flush ordering, the termination audit
+event, timestamp validation, HMAC framing and domain separation, proxy-chain
+traversal, gate cache identity and version binding, audit reserved-field
+handling, and the SessionArmor–AccessGate context bridge. Record tool versions,
+and distinguish automated findings from manual design conclusions.

@@ -17,7 +17,7 @@ session layer.
 
 | Middleware | Purpose |
 |-----------|---------|
-| `SessionSecurityMiddleware` | Keyed continuity binding, validated absolute/idle timeouts, claim drift detection, and typed assurance evidence |
+| `SessionSecurityMiddleware` | Keyed continuity binding, validated absolute/idle timeouts, claim drift detection, typed assurance evidence, and an audit event for each terminated session |
 | `AuditMiddleware` | Structured, privacy-aware security audit events for authenticated request outcomes |
 | `GateMiddleware` | Typed, identity-bound workflow gates with bounded, revocation-aware caching |
 
@@ -287,6 +287,24 @@ Events go to the `security.audit` logger: 5xx at `ERROR`, 401/403 at
 `WARNING`, other 4xx at `INFO`, and everything else at `DEBUG`. Configure that
 logger in `LOGGING` (or override `get_log_level()`); under Django's default
 logging, successful requests produce no visible audit line.
+
+`SessionSecurityMiddleware` records every session it terminates on the same
+logger, whatever the middleware order: one `session.terminated` event with the
+`reason`, the `uid` from its `get_subject_identifier()`, and the keyed
+`ip_hash` that request events carry, never a path, User-Agent, or raw address.
+Timeouts (`idle_timeout`, `absolute_timeout`) are logged at `INFO`. Every other
+reason is logged at `WARNING` with the `AUDIT_DENIED` prefix:
+`fingerprint_mismatch`, `claim_drift`, `state_integrity_failure`,
+`session_evaluation_error`, and the four reasons for incomplete, unsupported,
+malformed, or future-dated session state (`partial_security_state`,
+`unsupported_security_state`, `invalid_security_state`, and
+`future_security_state`).
+
+`AuditMiddleware`'s hooks do not apply to this event. If your `AuditMiddleware`
+subclass changes `logger_name`, set the same name as `audit_logger_name` on
+your `SessionSecurityMiddleware` subclass. If the event cannot be built, a
+`CRITICAL` record on the audit logger takes its place, and the session still
+ends.
 
 ## MCP server
 

@@ -13,6 +13,7 @@ certification, and it does not establish that every deployment is secure.
 | Forwarded headers are trusted only through configured hops and CIDRs | `adapters/django/utils.py` | `tests/test_utils.py`, `tests/test_fail_closed_paths.py` |
 | Gate decisions are typed, identity-bound, and bounded in time | `adapters/django/gate.py`, `decisions.py` | `tests/test_gate.py` |
 | Audit events are structured and sanitized | `adapters/django/audit.py` | `tests/test_audit.py`, `tests/test_utils.py` |
+| Each terminated session is audited, whatever the middleware order | `adapters/django/session.py` | `tests/test_session.py` |
 | Assurance evidence is versioned, subject-bound, and fresh | `assurance.py` | `tests/test_assurance.py`, `tests/test_access_gate_bridge.py` |
 | The MCP server is bounded and read-only | `mcp/server.py` | `tests/test_mcp_server.py` |
 | Release metadata and build inputs agree | `pyproject.toml`, `requirements/`, release tools | `tests/test_release_tools.py`, `tests/test_release_identity.py` |

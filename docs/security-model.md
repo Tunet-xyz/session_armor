@@ -7,7 +7,7 @@ SessionArmor adds reviewable session-integrity, audit, and request-gate controls
 - Reuse of a session from a request context whose configured IP or User-Agent fingerprint has changed.
 - Sessions remaining usable beyond configured absolute or idle timeouts.
 - Selected authenticated claims changing without the session being re-established.
-- Missing or unsafe authenticated-request audit events, including control-character log injection and reversible IPv4 pseudonyms.
+- Missing or unsafe audit events for authenticated requests and terminated sessions, including control-character log injection and reversible IPv4 pseudonyms.
 - Compliance, onboarding, maintenance, and similar workflow checks being implemented inconsistently across views.
 - Sticky gate passes remaining valid indefinitely when `sticky_pass_max_age` is set. A state version alone does not age a pass out; it forces a re-check only when the version changes.
 
@@ -53,6 +53,6 @@ SessionArmor assumes the application already uses:
 3. Exercise fingerprint changes, idle/absolute expiry, claim drift, exempt paths, and custom rejection responses.
 4. Verify that audit output contains no secrets or unnecessary personal data from custom hooks.
 5. Test gate invalidation and revocation behavior, including long-lived sessions.
-6. Roll out with observable rejection reasons and a documented recovery path for false positives.
+6. Roll out with observable rejection reasons (each `session.terminated` audit event names one) and a documented recovery path for false positives.
 
 For vulnerability reporting and supported versions, see [`SECURITY.md`](../SECURITY.md).

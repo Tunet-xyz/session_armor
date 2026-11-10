@@ -27,7 +27,7 @@ corruption into an authenticated pass-through.
 
 | Threat | Package control | Residual responsibility |
 | --- | --- | --- |
-| Stolen-cookie replay | Keyed continuity factors, absolute/idle expiry, claim binding, session-key rotation | Fingerprints are not device identity; call `establish()` at login and keep cookies secure |
+| Stolen-cookie replay | Keyed continuity factors, absolute/idle expiry, claim binding, session-key rotation, an audit event for each terminated session | Fingerprints are not device identity; call `establish()` at login and keep cookies secure |
 | State confusion or partial migration | Versioned complete state, strict type/range checks, fail-closed flush | Roll out key and settings changes deliberately; list retired state keys in `SESSION_ARMOR_STATE_KEY_FALLBACKS` so existing sessions survive rotation |
 | Digest ambiguity or comparison oracle | Length framing, purpose-separated HMAC-SHA256, constant-time comparison | Keep state keys and the audit pepper secret; drop a key that may have leaked instead of keeping it as a fallback |
 | Forwarded-header spoofing | Ignore-by-default policy, exact hop count, CIDR validation, invalid-chain rejection | Set the proxy depth and CIDRs from the real ingress path |

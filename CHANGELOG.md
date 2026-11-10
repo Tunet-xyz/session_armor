@@ -61,6 +61,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CodeQL uses the same codeql-action release as the Scorecard SARIF upload, and
   workflow files end in `.yaml`.
 
+### Security
+
+- `SessionSecurityMiddleware` records each session it terminates as a
+  `session.terminated` event on the `security.audit` logger, whatever the
+  middleware order, with the reason, the subject identifier, and the keyed IP
+  hash that request events carry, and never the path, User-Agent, or raw
+  address. Timeouts are logged at `INFO` and every other reason at `WARNING`
+  (`AUDIT_DENIED`); the new `audit_logger_name` attribute changes the logger.
+  In the documented middleware order, terminations used to leave no audit
+  record. An application that already logs terminations from `on_violation()`
+  will see two records.
+
 ## [1.0.0] - 2026-11-05
 
 ### Changed
