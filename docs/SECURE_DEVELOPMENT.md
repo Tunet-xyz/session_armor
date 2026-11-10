@@ -55,11 +55,13 @@ These GitHub settings were in place on 2026-11-10:
 - Every workflow is manual (`workflow_dispatch`) and runs only when the owner
   starts it, with actions pinned to full commit SHAs and read-only default
   permissions. Pull requests, issues, and comments cannot start a workflow.
-  GitHub's Dependabot jobs run weekly on their own and only open pull requests.
-- Workflows can use only the actions on the repository's allowlist, each at one
-  commit SHA. Before merging a Dependabot pull request that moves an action to a
-  new SHA, the owner adds the new SHA to the allowlist, together with any action
-  the new version itself uses.
+  Dependabot's own jobs run without the owner (weekly version updates, security
+  updates when an advisory appears, and refreshes after pushes) and change only
+  their `dependabot/*` branches and pull requests.
+- Workflows can use only the actions on the repository's allowlist, each pinned
+  to a full commit SHA. Before merging a Dependabot pull request that moves an
+  action to a new SHA, the owner adds that SHA to the allowlist, with any action
+  the new version itself uses, and removes the SHAs it replaces.
 - Secret scanning with push protection, private vulnerability reporting, and
   Dependabot alerts, security updates, and weekly version updates are on.
 

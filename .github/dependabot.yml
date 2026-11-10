@@ -3,8 +3,9 @@ updates:
   - package-ecosystem: pip
     directory: /
     schedule: {interval: weekly}
-    # Keep the declared floors (this is a library) and raise major updates in
-    # their own pull requests. The uv build lock and the floor pins change by hand.
+    # Keep the declared floors (this is a library): a release inside a range
+    # needs no change, and one outside it gets its own pull request. Version
+    # updates skip the uv build lock and the floor pins, which change by hand.
     versioning-strategy: increase-if-necessary
     exclude-paths: [requirements/build.in, requirements/build.txt, requirements/minimum.txt]
     commit-message: {prefix: build, include: scope}
