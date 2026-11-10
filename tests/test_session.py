@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 from unittest.mock import patch
 
@@ -14,7 +15,7 @@ from django.test import RequestFactory
 from django.utils.functional import lazystr
 
 from session_armor import AssuranceStatus, SessionConfigurationError
-from session_armor.adapters.django import SessionSecurityMiddleware
+from session_armor.adapters.django import AuditMiddleware, SessionSecurityMiddleware
 from session_armor.adapters.django.session import _mac
 from session_armor.adapters.django.utils import hash_ip
 
@@ -382,7 +383,7 @@ class TestEvaluationDiagnostics:
 
 
 class TestSingleTermination:
-    def test_failed_termination_reports_the_violation_once(self):
+    def test_failed_termination_reports_the_violation_once(self, caplog):
         reasons = []
 
         class Observed(SessionSecurityMiddleware):
@@ -397,10 +398,199 @@ class TestSingleTermination:
         request = make_request(session=UnflushableSession())
         initialize(middleware, request)
         request.META["HTTP_USER_AGENT"] = "AttackerAgent"
-        with pytest.raises(RuntimeError, match="could not invalidate"):
-            call_at(middleware, request, 1_001.0)
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
+            with pytest.raises(RuntimeError, match="could not invalidate"):
+                call_at(middleware, request, 1_001.0)
         assert reasons == ["fingerprint_mismatch"]
         assert request.session_assurance.reason == "fingerprint_mismatch"
+        # The session is still valid, so no termination is recorded.
+        assert audit_events(caplog) == []
+
+
+def audit_events(caplog, logger="security.audit"):
+    """(level, prefix, entry) for each event line recorded on ``logger``."""
+
+    events = []
+    for record in caplog.records:
+        if record.name == logger:
+            prefix, _, entry = record.getMessage().partition(" ")
+            events.append((record.levelno, prefix, json.loads(entry)))
+    return events
+
+
+def terminated(reason, **fields):
+    return {
+        "event": "session.terminated",
+        "reason": reason,
+        "uid": "user-123",
+        "ip_hash": hash_ip("10.0.0.1", length=32),
+        **fields,
+    }
+
+
+def change_user_agent(request):
+    request.META["HTTP_USER_AGENT"] = "AttackerAgent/9.9"
+
+
+def change_email(request):
+    request.user.email = "changed@example.com"
+
+
+def move_started_at(request):
+    request.session["_sa_started_at"] = 999.0
+
+
+def drop_state_mac(request):
+    del request.session["_sa_state_mac"]
+
+
+class TestTerminationAudit:
+    @pytest.mark.parametrize(
+        ("tamper", "reason"),
+        [
+            (change_user_agent, "fingerprint_mismatch"),
+            (change_email, "claim_drift"),
+            (move_started_at, "state_integrity_failure"),
+            (drop_state_mac, "partial_security_state"),
+        ],
+    )
+    def test_each_termination_is_recorded_once_without_path_or_client_details(
+        self, caplog, tamper, reason
+    ):
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request("/private/area/")
+        initialize(middleware, request)
+        tamper(request)
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
+            assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert request.session == {"_flushed": True}
+        assert audit_events(caplog) == [(logging.WARNING, "AUDIT_DENIED", terminated(reason))]
+        for detail in ("/private/area/", "10.0.0.1", "Agent"):
+            assert detail not in caplog.text
+
+    @pytest.mark.parametrize(
+        ("now", "reason"), [(2_801.0, "idle_timeout"), (29_801.0, "absolute_timeout")]
+    )
+    def test_a_timeout_is_recorded_as_routine(self, caplog, now, reason):
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
+            assert call_at(middleware, request, now).status_code == 302
+        assert audit_events(caplog) == [(logging.INFO, "AUDIT", terminated(reason))]
+
+    def test_the_documented_middleware_order_records_the_termination(self, caplog):
+        # SessionSecurityMiddleware runs first, so AuditMiddleware never sees
+        # the terminated request.
+        middleware = SessionSecurityMiddleware(AuditMiddleware(ok_response))
+        request = make_request()
+        initialize(middleware, request)
+        change_user_agent(request)
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
+            assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert audit_events(caplog) == [
+            (logging.WARNING, "AUDIT_DENIED", terminated("fingerprint_mismatch"))
+        ]
+
+    def test_request_and_termination_events_name_the_same_subject_and_address(self, caplog):
+        middleware = AuditMiddleware(SessionSecurityMiddleware(ok_response))
+        request = make_request()
+        request.user.sub = "user-\x1b[31m123\n"
+        initialize(middleware, request)
+        change_user_agent(request)
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
+            assert call_at(middleware, request, 1_001.0).status_code == 302
+        termination, completed = audit_events(caplog)
+        assert termination == (logging.WARNING, "AUDIT_DENIED", terminated("fingerprint_mismatch"))
+        assert completed[2]["event"] == "request.completed"
+        assert completed[2]["status"] == 302
+        assert completed[2]["uid"] == termination[2]["uid"] == "user-123"
+        assert completed[2]["ip_hash"] == termination[2]["ip_hash"]
+
+    def test_a_hook_that_signs_the_user_out_keeps_the_terminated_subject(self, caplog):
+        class Anonymous:
+            is_authenticated = False
+
+        class SignsOut(SessionSecurityMiddleware):
+            def on_violation(self, request, reason):
+                request.user = Anonymous()
+                return HttpResponseForbidden(reason)
+
+        middleware = SignsOut(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        change_email(request)
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
+            assert call_at(middleware, request, 1_001.0).status_code == 403
+        assert audit_events(caplog) == [
+            (logging.WARNING, "AUDIT_DENIED", terminated("claim_drift"))
+        ]
+
+    def test_an_address_that_cannot_be_validated_is_recorded_as_null(self, caplog):
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        request.META["REMOTE_ADDR"] = "not-an-ip"
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
+            assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert audit_events(caplog) == [
+            (logging.WARNING, "AUDIT_DENIED", terminated("session_evaluation_error", ip_hash=None))
+        ]
+
+    def test_a_failure_to_record_never_undoes_the_termination(self, caplog, settings):
+        middleware = SessionSecurityMiddleware(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        settings.SESSION_ARMOR_AUDIT_PEPPER = "too-short"
+        change_user_agent(request)
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
+            assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert request.session == {"_flushed": True}
+        records = [record for record in caplog.records if record.name == "security.audit"]
+        assert [(record.levelno, record.getMessage()) for record in records] == [
+            (logging.CRITICAL, "Security audit failed while recording a session termination")
+        ]
+        assert records[0].exc_info[0] is SessionConfigurationError
+
+    def test_the_audit_logger_can_be_renamed(self, caplog):
+        class Renamed(SessionSecurityMiddleware):
+            audit_logger_name = "example.audit"
+
+        middleware = Renamed(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        change_user_agent(request)
+        with caplog.at_level(logging.DEBUG, logger="example.audit"):
+            assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert audit_events(caplog, "example.audit") == [
+            (logging.WARNING, "AUDIT_DENIED", terminated("fingerprint_mismatch"))
+        ]
+        assert audit_events(caplog) == []
+
+    def test_a_subclass_that_sets_up_its_own_init_still_records(self, caplog):
+        class OwnInit(SessionSecurityMiddleware):
+            def __init__(self, get_response):
+                self.get_response = get_response
+
+        middleware = OwnInit(ok_response)
+        request = make_request()
+        initialize(middleware, request)
+        change_user_agent(request)
+        with caplog.at_level(logging.DEBUG, logger="security.audit"):
+            assert call_at(middleware, request, 1_001.0).status_code == 302
+        assert audit_events(caplog) == [
+            (logging.WARNING, "AUDIT_DENIED", terminated("fingerprint_mismatch"))
+        ]
+
+    @pytest.mark.parametrize("name", ["", None, b"security.audit"])
+    def test_the_audit_logger_must_be_named(self, name):
+        class Unnamed(SessionSecurityMiddleware):
+            audit_logger_name = name
+
+        with pytest.raises(SessionConfigurationError, match="audit_logger_name"):
+            Unnamed(ok_response)
 
 
 class TestLoginUrl:

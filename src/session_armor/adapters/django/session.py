@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import hmac
+import json
 import logging
 import math
 import secrets
@@ -18,11 +19,19 @@ from django.utils.functional import Promise
 
 from ...assurance import AssuranceStatus, SessionAssurance
 from ...exceptions import SessionConfigurationError
-from .utils import _secret_bytes, get_client_ip, hash_ip, is_authenticated, path_is_exempt
+from .utils import (
+    _secret_bytes,
+    get_client_ip,
+    hash_ip,
+    is_authenticated,
+    path_is_exempt,
+    sanitize_for_log,
+)
 
 _STATE_VERSION = 1
 logger = logging.getLogger("session_armor.session")
 _PREFIX = "_sa_"
+_TIMEOUT_REASONS = frozenset({"absolute_timeout", "idle_timeout"})
 # Bound in place of an absent or empty User-Agent. A valid header value cannot
 # contain NUL, so a session started with a User-Agent never matches one without.
 _NO_USER_AGENT = "\x00absent"
@@ -147,10 +156,14 @@ class SessionSecurityMiddleware:
 
     exempt_paths: tuple[str, ...] = ()
     last_active_resolution: int | None = None
+    # Where each termination is recorded; AuditMiddleware.logger_name's default.
+    audit_logger_name: str = "security.audit"
 
     def __init__(self, get_response: Callable[..., HttpResponseBase]) -> None:
         if not callable(get_response):
             raise TypeError("get_response must be callable.")
+        if not isinstance(self.audit_logger_name, str) or not self.audit_logger_name:
+            raise SessionConfigurationError("audit_logger_name must be a non-empty string.")
         self.get_response = get_response
 
     def __call__(self, request) -> HttpResponseBase:
@@ -222,7 +235,7 @@ class SessionSecurityMiddleware:
         # Terminate once, outside the containment above: a session that cannot
         # be invalidated propagates rather than being reported a second time.
         if violation is not None:
-            if violation in {"absolute_timeout", "idle_timeout"}:
+            if violation in _TIMEOUT_REASONS:
                 try:
                     self.on_timeout(request, violation.removesuffix("_timeout"))
                 except Exception:
@@ -533,6 +546,8 @@ class SessionSecurityMiddleware:
             status=AssuranceStatus.UNVERIFIED,
             reason=reason,
         )
+        # A hook may sign the user out; the event names whose session this was.
+        user = getattr(request, "user", None)
         custom = None
         login_url = "/"
         try:
@@ -552,11 +567,45 @@ class SessionSecurityMiddleware:
             request.session.flush()
         except Exception as error:
             raise RuntimeError("SessionArmor could not invalidate the session.") from error
+        self._audit_termination(request, user, reason)
         if custom is not None:
             if isinstance(custom, HttpResponseBase):
                 return custom
             logger.error("SessionArmor ignored an invalid violation-hook response")
         return redirect(login_url)
+
+    def _audit_termination(self, request, user, reason: str) -> None:
+        """Record an invalidated session on the audit logger, whatever the middleware order.
+
+        The event names the reason, the subject and the keyed IP hash that
+        AuditMiddleware records, never a path, User-Agent or raw address. A
+        timeout is routine (INFO); any other reason is a refused request
+        (WARNING, ``AUDIT_DENIED``). A failure to record it is logged at
+        CRITICAL and never undoes the termination.
+        """
+
+        audit = logging.getLogger(self.audit_logger_name)
+        timeout = reason in _TIMEOUT_REASONS
+        try:
+            ip = get_client_ip(request)
+            subject = sanitize_for_log(self.get_subject_identifier(user), max_length=500)
+            entry = {
+                "event": "session.terminated",
+                "reason": reason,
+                "uid": subject or None,
+                "ip_hash": hash_ip(ip, length=32) if ip else None,
+            }
+            message = json.dumps(entry, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+            audit.log(
+                logging.INFO if timeout else logging.WARNING,
+                "%s %s",
+                "AUDIT" if timeout else "AUDIT_DENIED",
+                message,
+            )
+        except Exception:
+            audit.critical(
+                "Security audit failed while recording a session termination", exc_info=True
+            )
 
     def _is_exempt(self, request) -> bool:
         # Match the path Django routes on. request.path also carries SCRIPT_NAME,
