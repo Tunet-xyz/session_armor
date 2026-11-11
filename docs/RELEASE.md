@@ -41,7 +41,7 @@ workflows on the release commit. Record any check you could not run.
 python -m pip install --require-hashes -r requirements/build.txt
 export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
 python -m build --no-isolation
-python -m twine check dist/*
+python -m twine check --strict dist/*
 ```
 
 The workflow does not inspect the archives, so do it yourself: the sdist must
@@ -66,7 +66,7 @@ markers.
 2. The owner starts `publish.yaml` from `main` or that tag; it stops on any
    other ref, including a tag that does not match the package version. Dispatch
    from the tag for a release. The workflow verifies the source, builds once
-   with the hash-locked tools, runs `twine check`, writes an SBOM that
+   with the hash-locked tools, runs `twine check --strict`, writes an SBOM that
    `pyspdxtools` validates, and writes `SHA256SUMS` (with `dist/` paths).
 3. The upload job runs in the `pypi` environment, which only `main` and `v*`
    tags may use and which needs the owner's approval; administrators cannot

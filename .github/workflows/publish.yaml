@@ -58,7 +58,7 @@ jobs:
       - name: Build distributions
         run: python -m build --no-isolation --outdir dist/packages
       - name: Validate package metadata
-        run: python -m twine check dist/packages/*
+        run: python -m twine check --strict dist/packages/*
       - name: Generate SPDX SBOM
         run: python -m tools.generate_sbom --dist dist/packages --output dist/evidence/sessionarmor.spdx.json
       - name: Validate SPDX SBOM
