@@ -59,7 +59,10 @@ The server reads one JSON-RPC message per line. It answers with a JSON-RPC
 error, and keeps serving, when a line is longer than 1,100,000 characters
 (newline included), is not valid UTF-8 JSON, repeats an object key, uses `NaN`
 or `Infinity`, has a number longer than 256 characters, or has an invalid
-request shape.
+request shape. `prompts/get` fills a template in one pass and rejects
+undeclared, missing, or non-string arguments; `tools/call` checks each tool's
+required arguments, types, and allowed values; error details are cut to 200
+characters.
 
 ## Boundaries
 

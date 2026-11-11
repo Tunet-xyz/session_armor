@@ -52,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of promising a hosted endpoint, adds the `cli` operation mode, quotes
   the `SessionArmor[django]` install in `djangoAdapter`, and points `docsUrl` at
   `docs/README.md`.
+- The MCP server's `prompts/get` fills a template in one pass and rejects
+  undeclared, missing, or non-string arguments; `tools/call` checks each
+  tool's required arguments, types, and allowed values; tool descriptions say
+  the tools return contract guidance, and every tool reply says it does not
+  run SessionArmor or generate code; error details are cut to 200 characters.
 - Package metadata drops the end-of-life Django 5.0 and 5.1 classifiers, adds
   6.1 and `Typing :: Typed`, and its keywords add `mcp`; the sdist ships
   `CODE_OF_CONDUCT.md` and the root `conftest.py`.

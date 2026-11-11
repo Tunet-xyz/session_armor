@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import re
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -12,6 +13,16 @@ PROTOCOL_VERSION = "2025-06-18"
 CONTRACT_PATH = Path(__file__).with_name("agent-contract.json")
 MAX_MESSAGE_CHARS = 1_100_000
 MAX_JSON_NUMBER_CHARS = 256
+MAX_ERROR_DETAIL_CHARS = 200
+PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+JSON_TYPES: dict[str, tuple[type, ...]] = {
+    "string": (str,),
+    "array": (list,),
+    "object": (dict,),
+    "boolean": (bool,),
+    "integer": (int,),
+    "number": (int, float),
+}
 
 
 def _reject_json_constant(value: str) -> None:
@@ -163,9 +174,70 @@ def list_tools(contract: dict[str, Any]) -> dict[str, Any]:
     return {"tools": tools}
 
 
+def _shorten(value: object) -> str:
+    text = str(value)
+    if len(text) > MAX_ERROR_DETAIL_CHARS:
+        return text[:MAX_ERROR_DETAIL_CHARS] + "..."
+    return text
+
+
+def _has_json_type(value: Any, expected: str) -> bool:
+    if isinstance(value, bool):
+        return expected == "boolean"
+    # An integer argument must be a JSON integer: 2.0 is a float, as the library's own
+    # settings checks and the other Tunet MCP servers treat it.
+    return isinstance(value, JSON_TYPES[expected])
+
+
+def _check_value(value: Any, schema: Mapping[str, Any], where: str) -> None:
+    """Check *value* against the JSON Schema keywords the contracts use."""
+    expected = schema.get("type")
+    if expected in JSON_TYPES and not _has_json_type(value, expected):
+        raise TypeError(f"{where} must be of type {expected}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{where} must be one of {', '.join(map(str, schema['enum']))}")
+    if expected == "array" and isinstance(schema.get("items"), Mapping):
+        for index, item in enumerate(value):
+            _check_value(item, schema["items"], f"{where}[{index}]")
+
+
+def check_tool_arguments(tool: Mapping[str, Any], arguments: Mapping[str, Any]) -> None:
+    """Enforce a tool's inputSchema: required arguments, types and enums."""
+    schema = tool.get("inputSchema", {})
+    missing = [name for name in schema.get("required", []) if name not in arguments]
+    if missing:
+        raise ValueError(f"missing required arguments: {', '.join(missing)}")
+    for name, spec in schema.get("properties", {}).items():
+        if name in arguments:
+            _check_value(arguments[name], spec, f"argument {name}")
+
+
+def render_prompt(prompt: Mapping[str, Any], arguments: Mapping[str, Any]) -> str:
+    """Fill the template in one pass, so argument values are never substituted again."""
+    declared = {argument["name"]: argument for argument in prompt.get("arguments", [])}
+    unknown = [name for name in arguments if name not in declared]
+    if unknown:
+        raise ValueError(f"unknown prompt arguments: {_shorten(', '.join(unknown))}")
+    missing = [
+        name
+        for name, argument in declared.items()
+        if argument.get("required") and name not in arguments
+    ]
+    if missing:
+        raise ValueError(f"missing required prompt arguments: {', '.join(missing)}")
+    for name, value in arguments.items():
+        if not isinstance(value, str):
+            raise TypeError(f"prompt argument {name} must be a string")
+    return PLACEHOLDER.sub(
+        lambda match: arguments.get(match.group(1), match.group(0)),
+        prompt.get("template", ""),
+    )
+
+
 def call_tool(contract: dict[str, Any], name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     for tool in contract.get("tools", []):
         if tool.get("name") == name:
+            check_tool_arguments(tool, arguments)
             structured = {
                 "offering": contract["offering"],
                 "tool": tool,
@@ -179,7 +251,9 @@ def call_tool(contract: dict[str, Any], name: str, arguments: dict[str, Any]) ->
                 f"Execution mode: {structured['executionMode']}\n"
                 f"Purpose: {tool.get('description', '')}\n\n"
                 "Use the structured content to map the request to public docs, package APIs, "
-                "MCP tools, CLI commands, browser-visible docs, safety rules, and verification steps."
+                "MCP tools, CLI commands, browser-visible docs, safety rules, and verification steps. "
+                "The tool returns this contract's guidance and your arguments; it does not run "
+                "SessionArmor or generate code."
             )
             return {
                 "content": [{"type": "text", "text": text}],
@@ -206,9 +280,7 @@ def list_prompts(contract: dict[str, Any]) -> dict[str, Any]:
 def get_prompt(contract: dict[str, Any], name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     for prompt in contract.get("prompts", []):
         if prompt.get("name") == name:
-            text = prompt.get("template", "")
-            for key, value in arguments.items():
-                text = text.replace("{" + key + "}", str(value))
+            text = render_prompt(prompt, arguments)
             return {
                 "description": prompt.get("description", ""),
                 "messages": [{"role": "user", "content": {"type": "text", "text": text}}],
@@ -286,9 +358,9 @@ def handle(message: object, contract: dict[str, Any]) -> dict[str, Any] | None:
                 raise TypeError("prompt name and arguments have invalid types")
             response = result(request_id, get_prompt(contract, name, dict(arguments)))
         else:
-            response = error(request_id, -32601, f"Method not found: {method}")
+            response = error(request_id, -32601, f"Method not found: {_shorten(method)}")
     except (KeyError, TypeError, ValueError) as exc:
-        response = error(request_id, -32602, f"Unknown or invalid parameter: {exc}")
+        response = error(request_id, -32602, f"Unknown or invalid parameter: {_shorten(exc)}")
     except Exception as exc:  # pragma: no cover - defensive protocol boundary
         response = error(request_id, -32603, "Internal error", {"detail": type(exc).__name__})
     return None if is_notification else response
@@ -313,7 +385,7 @@ def main() -> None:
         try:
             message = parse_message(line)
         except (json.JSONDecodeError, RecursionError, TypeError, ValueError) as exc:
-            write_message(error(None, -32700, "Parse error", {"detail": str(exc)}))
+            write_message(error(None, -32700, "Parse error", {"detail": _shorten(exc)}))
             continue
         response = handle(message, contract)
         if response is not None:
